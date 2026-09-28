@@ -1,8 +1,9 @@
 interface StatusBarProps {
   fileName: string | undefined;
+  status: string;
 }
 
-function StatusBar({ fileName }: StatusBarProps) {
+function StatusBar({ fileName, status }: StatusBarProps) {
   return (
     <footer className="statusbar">
       <span className="status-left">
@@ -11,9 +12,7 @@ function StatusBar({ fileName }: StatusBarProps) {
       </span>
 
       <span>
-        {fileName
-          ? `Abierto: ${fileName}`
-          : "Sin conexión  |  Listo"}
+        {fileName ? `${status}  |  ${fileName}` : `Sin conexión  |  ${status}`}
       </span>
     </footer>
   );

@@ -8,9 +8,21 @@ import {
 
 interface ToolbarProps {
   onOpenPdf: () => void;
+  onEditPdf: () => void;
+  onMergePdf: () => void;
+  onOptimizePdf: () => void;
+  onCheckUpdates: () => void;
+  hasDocument: boolean;
 }
 
-function Toolbar({ onOpenPdf }: ToolbarProps) {
+function Toolbar({
+  onOpenPdf,
+  onEditPdf,
+  onMergePdf,
+  onOptimizePdf,
+  onCheckUpdates,
+  hasDocument,
+}: ToolbarProps) {
   return (
     <div className="toolbar">
       <button
@@ -23,8 +35,9 @@ function Toolbar({ onOpenPdf }: ToolbarProps) {
 
       <button
         className="tool-button"
-        disabled
-        title="Disponible próximamente"
+        onClick={onEditPdf}
+        disabled={!hasDocument}
+        title={hasDocument ? "Editar las páginas del PDF" : "Abre un PDF primero"}
       >
         <Pencil size={22} strokeWidth={1.8} />
         <span>Editar PDF</span>
@@ -32,8 +45,8 @@ function Toolbar({ onOpenPdf }: ToolbarProps) {
 
       <button
         className="tool-button"
-        disabled
-        title="Disponible próximamente"
+        onClick={onMergePdf}
+        title="Unir este PDF con otros documentos"
       >
         <Files size={23} strokeWidth={1.8} />
         <span>Unir PDF</span>
@@ -41,19 +54,20 @@ function Toolbar({ onOpenPdf }: ToolbarProps) {
 
       <button
         className="tool-button"
-        disabled
-        title="Disponible próximamente"
+        onClick={onOptimizePdf}
+        disabled={!hasDocument}
+        title={hasDocument ? "Guardar una copia optimizada" : "Abre un PDF primero"}
       >
         <Minimize2 size={22} strokeWidth={1.8} />
-        <span>Comprimir PDF</span>
+        <span>Optimizar PDF</span>
       </button>
 
       <div className="toolbar-spacer" />
 
       <button
         className="update-button"
-        disabled
-        title="Disponible próximamente"
+        onClick={onCheckUpdates}
+        title="Información de actualizaciones"
       >
         <RefreshCw size={20} strokeWidth={2} />
         <span>Buscar actualizaciones</span>

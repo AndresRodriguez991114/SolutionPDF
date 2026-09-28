@@ -1,13 +1,14 @@
 import { PDFDocument, degrees } from "pdf-lib";
 
-/**
- * Lee un archivo PDF desde una ruta local.
- */
-export async function loadPdf(filePath: string): Promise<PDFDocument> {
-  const response = await fetch(filePath);
-  const arrayBuffer = await response.arrayBuffer();
+export type PageAction =
+  | "rotate-left"
+  | "rotate-right"
+  | "move-up"
+  | "move-down"
+  | "delete";
 
-  return PDFDocument.load(arrayBuffer);
+export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
+  return PDFDocument.load(bytes);
 }
 
 /**
@@ -89,9 +90,63 @@ export async function reorderPages(
  * Exporta el PDF modificado como bytes.
  */
 export async function savePdf(
-  pdf: PDFDocument
+  pdf: PDFDocument,
+  options?: Parameters<PDFDocument["save"]>[0]
 ): Promise<Uint8Array> {
-  return await pdf.save();
+  return pdf.save(options);
+}
+
+export async function applyPageAction(
+  bytes: Uint8Array,
+  action: PageAction,
+  pageNumber: number
+): Promise<Uint8Array> {
+  const pdf = await loadPdf(bytes);
+  const pageIndex = pageNumber - 1;
+
+  if (action === "delete") {
+    if (pdf.getPageCount() <= 1) {
+      throw new Error("El PDF debe conservar al menos una página.");
+    }
+
+    removePage(pdf, pageIndex);
+    return savePdf(pdf);
+  }
+
+  if (action === "rotate-left" || action === "rotate-right") {
+    rotatePage(pdf, pageIndex, action === "rotate-left" ? -90 : 90);
+    return savePdf(pdf);
+  }
+
+  const targetIndex = pageIndex + (action === "move-up" ? -1 : 1);
+  if (targetIndex < 0 || targetIndex >= pdf.getPageCount()) {
+    return bytes;
+  }
+
+  const order = Array.from({ length: pdf.getPageCount() }, (_, index) => index);
+  [order[pageIndex], order[targetIndex]] = [order[targetIndex], order[pageIndex]];
+
+  const reordered = await reorderPages(pdf, order);
+  return savePdf(reordered);
+}
+
+export async function mergePdfs(
+  documents: Uint8Array[]
+): Promise<Uint8Array> {
+  const merged = await PDFDocument.create();
+
+  for (const bytes of documents) {
+    const source = await loadPdf(bytes);
+    const pages = await merged.copyPages(source, source.getPageIndices());
+    pages.forEach((page) => merged.addPage(page));
+  }
+
+  return savePdf(merged, { useObjectStreams: true });
+}
+
+export async function optimizePdf(bytes: Uint8Array): Promise<Uint8Array> {
+  const pdf = await loadPdf(bytes);
+  return savePdf(pdf, { useObjectStreams: true, objectsPerTick: 50 });
 }
 
 /**

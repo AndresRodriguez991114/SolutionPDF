@@ -1,6 +1,6 @@
 import { Document, Page, pdfjs } from "react-pdf";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import PdfThumbnail from "./PdfThumbnail";
+import type { PageAction } from "./pdfUtils";
 
 import "react-pdf/dist/Page/TextLayer.css";
 import "react-pdf/dist/Page/AnnotationLayer.css";
@@ -20,27 +21,76 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 ).toString();
 
 interface PdfViewerProps {
-  file: string | null;
+  file: Uint8Array | null;
+  sourcePath: string;
+  hasUnsavedChanges: boolean;
   onPageCountChange?: (count: number) => void;
+  currentPage: number;
+  onCurrentPageChange: (pageNumber: number) => void;
+  onPageAction: (action: PageAction, pageNumber: number) => void;
+  zoom: number;
+  showThumbnails: boolean;
 }
 
 function PdfViewer({
   file,
+  sourcePath,
+  hasUnsavedChanges,
   onPageCountChange,
+  currentPage,
+  onCurrentPageChange,
+  onPageAction,
+  zoom,
+  showThumbnails,
 }: PdfViewerProps) {
   const [numPages, setNumPages] = useState<number>(0);
-  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [documentError, setDocumentError] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    pageNumber: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const thumbnailSource = useMemo(() => {
+    if (!hasUnsavedChanges) return convertFileSrc(sourcePath);
+    return file ? { data: new Uint8Array(file) } : null;
+  }, [file, hasUnsavedChanges, sourcePath]);
+  const documentSource = useMemo(() => {
+    if (!hasUnsavedChanges) return convertFileSrc(sourcePath);
+    return file ? { data: new Uint8Array(file) } : null;
+  }, [file, hasUnsavedChanges, sourcePath]);
 
-  // Guardamos las páginas que han sido modificadas
-  const [rotations, setRotations] = useState<
-    Record<number, number>
-  >({});
+  useEffect(() => {
+    if (!contextMenu) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        !contextMenuRef.current?.contains(event.target as Node)
+      ) {
+        setContextMenu(null);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setContextMenu(null);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [contextMenu]);
 
   if (!file) {
     return null;
   }
-
-  const pdfUrl = convertFileSrc(file);
 
   function onDocumentLoadSuccess({
     numPages,
@@ -48,16 +98,19 @@ function PdfViewer({
     numPages: number;
   }) {
     setNumPages(numPages);
-    setCurrentPage(1);
-    setRotations({});
-
+    setDocumentError(null);
     if (onPageCountChange) {
       onPageCountChange(numPages);
     }
   }
 
+  function onDocumentLoadError(error: Error) {
+    console.error("SolutionsPDF: no se pudo renderizar el documento", error);
+    setDocumentError(error.message);
+  }
+
   function goToPage(pageNumber: number) {
-    setCurrentPage(pageNumber);
+    onCurrentPageChange(pageNumber);
 
     const pageElement = document.getElementById(
       `pdf-page-${pageNumber}`
@@ -71,56 +124,34 @@ function PdfViewer({
     }
   }
 
-  function rotatePage(direction: number) {
-    setRotations((previous) => ({
-      ...previous,
-      [currentPage]:
-        (previous[currentPage] || 0) + direction,
-    }));
+  function openPageMenu(
+    pageNumber: number,
+    x: number,
+    y: number
+  ) {
+    onCurrentPageChange(pageNumber);
+    setContextMenu({
+      pageNumber,
+      x: Math.max(8, Math.min(x, window.innerWidth - 224)),
+      y: Math.max(8, Math.min(y, window.innerHeight - 246)),
+    });
   }
 
-  function deletePage() {
-    if (numPages <= 1) {
-      alert("El PDF debe tener al menos una página.");
-      return;
-    }
-
-    alert(
-      `La eliminación de la página ${currentPage} se conectará al PDF en el siguiente paso.`
-    );
-  }
-
-  function movePage(direction: number) {
-    if (
-      (direction === -1 && currentPage === 1) ||
-      (direction === 1 && currentPage === numPages)
-    ) {
-      return;
-    }
-
-    const newPage = currentPage + direction;
-
-    setCurrentPage(newPage);
-
-    setTimeout(() => {
-      const pageElement = document.getElementById(
-        `pdf-page-${newPage}`
-      );
-
-      if (pageElement) {
-        pageElement.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-      }
-    }, 50);
+  function runAction(action: PageAction) {
+    if (!contextMenu) return;
+    const pageNumber = contextMenu.pageNumber;
+    onPageAction(action, pageNumber);
+    setContextMenu(null);
+    if (action === "move-up") onCurrentPageChange(Math.max(1, pageNumber - 1));
+    if (action === "move-down") onCurrentPageChange(Math.min(numPages, pageNumber + 1));
+    if (action === "delete") onCurrentPageChange(Math.max(1, Math.min(pageNumber, numPages - 1)));
   }
 
   return (
     <div className="pdf-workspace">
 
       {/* PANEL DE MINIATURAS */}
-      <aside className="pdf-thumbnails-panel">
+      {showThumbnails && <aside className="pdf-thumbnails-panel">
 
         <div className="thumbnails-header">
           <span>Páginas</span>
@@ -128,8 +159,9 @@ function PdfViewer({
         </div>
 
         <Document
-          file={pdfUrl}
+          file={thumbnailSource}
           onLoadSuccess={onDocumentLoadSuccess}
+          onLoadError={onDocumentLoadError}
           loading={
             <div className="pdf-loading">
               Cargando páginas...
@@ -137,7 +169,7 @@ function PdfViewer({
           }
           error={
             <div className="pdf-error">
-              No se pudo cargar el PDF.
+              No se pudo mostrar el PDF: {documentError || "verifica que el archivo sea válido y no tenga contraseña"}
             </div>
           }
         >
@@ -152,9 +184,22 @@ function PdfViewer({
                   active={
                     currentPage === index + 1
                   }
+                  menuOpen={contextMenu?.pageNumber === index + 1}
                   onClick={() =>
                     goToPage(index + 1)
                   }
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    openPageMenu(
+                      index + 1,
+                      event.clientX,
+                      event.clientY
+                    );
+                  }}
+                  onMenuClick={(event) => {
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    openPageMenu(index + 1, bounds.right + 6, bounds.top);
+                  }}
                 />
               )
             )}
@@ -162,57 +207,10 @@ function PdfViewer({
           </div>
         </Document>
 
-      </aside>
+      </aside>}
 
       {/* DOCUMENTO PRINCIPAL */}
       <div className="pdf-viewer">
-
-        {/* BARRA DE EDICIÓN */}
-        <div className="pdf-edit-toolbar">
-
-          <button
-            onClick={() => rotatePage(-90)}
-            title="Rotar izquierda"
-          >
-            <RotateCcw size={18} />
-            <span>Rotar</span>
-          </button>
-
-          <button
-            onClick={() => rotatePage(90)}
-            title="Rotar derecha"
-          >
-            <RotateCw size={18} />
-            <span>Rotar</span>
-          </button>
-
-          <button
-            onClick={deletePage}
-            title="Eliminar página"
-          >
-            <Trash2 size={18} />
-            <span>Eliminar</span>
-          </button>
-
-          <button
-            onClick={() => movePage(-1)}
-            disabled={currentPage === 1}
-            title="Mover página arriba"
-          >
-            <ArrowUp size={18} />
-            <span>Subir</span>
-          </button>
-
-          <button
-            onClick={() => movePage(1)}
-            disabled={currentPage === numPages}
-            title="Mover página abajo"
-          >
-            <ArrowDown size={18} />
-            <span>Bajar</span>
-          </button>
-
-        </div>
 
         <div className="pdf-info">
           <span>
@@ -221,8 +219,9 @@ function PdfViewer({
         </div>
 
         <Document
-          file={pdfUrl}
+          file={documentSource}
           onLoadSuccess={onDocumentLoadSuccess}
+          onLoadError={onDocumentLoadError}
           loading={
             <div className="pdf-loading">
               Cargando documento...
@@ -230,7 +229,7 @@ function PdfViewer({
           }
           error={
             <div className="pdf-error">
-              No se pudo cargar el PDF.
+              No se pudo mostrar el PDF: {documentError || "verifica que el archivo sea válido y no tenga contraseña"}
             </div>
           }
         >
@@ -241,22 +240,18 @@ function PdfViewer({
 
               const pageNumber = index + 1;
 
-              const rotation =
-                rotations[pageNumber] || 0;
-
               return (
                 <div
                   className="pdf-page"
                   id={`pdf-page-${pageNumber}`}
                   key={`page_${pageNumber}`}
                   onClick={() =>
-                    setCurrentPage(pageNumber)
+                    onCurrentPageChange(pageNumber)
                   }
                 >
                   <Page
                     pageNumber={pageNumber}
-                    width={750}
-                    rotate={rotation}
+                    width={750 * zoom / 100}
                   />
                 </div>
               );
@@ -266,6 +261,70 @@ function PdfViewer({
         </Document>
 
       </div>
+
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="thumbnail-context-menu"
+          role="menu"
+          aria-label={`Acciones para la página ${contextMenu.pageNumber}`}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <div className="context-menu-heading">
+            Página {contextMenu.pageNumber}
+          </div>
+          <button
+            role="menuitem"
+            onClick={() => {
+              runAction("rotate-left");
+            }}
+          >
+            <RotateCcw size={16} />
+            Rotar a la izquierda
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              runAction("rotate-right");
+            }}
+          >
+            <RotateCw size={16} />
+            Rotar a la derecha
+          </button>
+          <div className="context-menu-divider" />
+          <button
+            role="menuitem"
+            disabled={contextMenu.pageNumber === 1}
+            onClick={() => {
+              runAction("move-up");
+            }}
+          >
+            <ArrowUp size={16} />
+            Mover hacia arriba
+          </button>
+          <button
+            role="menuitem"
+            disabled={contextMenu.pageNumber === numPages}
+            onClick={() => {
+              runAction("move-down");
+            }}
+          >
+            <ArrowDown size={16} />
+            Mover hacia abajo
+          </button>
+          <div className="context-menu-divider" />
+          <button
+            className="context-menu-danger"
+            role="menuitem"
+            onClick={() => {
+              runAction("delete");
+            }}
+          >
+            <Trash2 size={16} />
+            Eliminar página
+          </button>
+        </div>
+      )}
     </div>
   );
 }

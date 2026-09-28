@@ -14,6 +14,7 @@ import {
 import { PDFDocument } from "pdf-lib";
 
 import "./App.css";
+import brandMark from "./assets/solutionspdf-mark.svg";
 
 import PdfViewer from "./PDF/PdfViewer";
 import Toolbar from "./components/Toolbar";
@@ -405,12 +406,7 @@ function App() {
 
         <div className="brand">
 
-          <div className="brand-icon">
-            <FileText
-              size={18}
-              strokeWidth={2.2}
-            />
-          </div>
+          <img className="brand-icon" src={brandMark} alt="" />
 
           <span className="brand-name">
             Solutions<span>PDF</span>

@@ -36,13 +36,11 @@ button { font: inherit; }
 
 .brand { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
 .brand-icon {
-  display: grid;
-  width: 26px;
-  height: 26px;
-  place-items: center;
-  color: #fff;
-  background: #b8493c;
-  border-radius: 6px;
+  display: block;
+  width: 29px;
+  height: 29px;
+  object-fit: contain;
+  border-radius: 7px;
 }
 .brand-name { font-size: 14px; font-weight: 650; letter-spacing: 0; }
 .brand-name span { color: #b8493c; }

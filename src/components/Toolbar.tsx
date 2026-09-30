@@ -3,12 +3,20 @@ import {
   FolderOpen,
   Minimize2,
   Pencil,
+  Highlighter,
+  PenLine,
   RefreshCw,
+  Type,
 } from "lucide-react";
+
+export type PdfTool = "text" | "signature" | "highlight" | null;
 
 interface ToolbarProps {
   onOpenPdf: () => void;
   onEditPdf: () => void;
+  onSign: () => void;
+  onToolChange: (tool: PdfTool) => void;
+  activeTool: PdfTool;
   onMergePdf: () => void;
   onOptimizePdf: () => void;
   onCheckUpdates: () => void;
@@ -18,6 +26,9 @@ interface ToolbarProps {
 function Toolbar({
   onOpenPdf,
   onEditPdf,
+  onSign,
+  onToolChange,
+  activeTool,
   onMergePdf,
   onOptimizePdf,
   onCheckUpdates,
@@ -40,7 +51,37 @@ function Toolbar({
         title={hasDocument ? "Editar las páginas del PDF" : "Abre un PDF primero"}
       >
         <Pencil size={22} strokeWidth={1.8} />
-        <span>Editar PDF</span>
+        <span>Páginas</span>
+      </button>
+
+      <button
+        className={`tool-button ${activeTool === "text" ? "active" : ""}`}
+        onClick={() => onToolChange(activeTool === "text" ? null : "text")}
+        disabled={!hasDocument}
+        title="Selecciona texto para editarlo o haz clic para agregar texto"
+      >
+        <Type size={22} strokeWidth={1.8} />
+        <span>Editar texto</span>
+      </button>
+
+      <button
+        className={`tool-button ${activeTool === "signature" ? "active" : ""}`}
+        onClick={onSign}
+        disabled={!hasDocument}
+        title="Crear o usar una firma guardada"
+      >
+        <PenLine size={22} strokeWidth={1.8} />
+        <span>Firmar</span>
+      </button>
+
+      <button
+        className={`tool-button ${activeTool === "highlight" ? "active" : ""}`}
+        onClick={() => onToolChange(activeTool === "highlight" ? null : "highlight")}
+        disabled={!hasDocument}
+        title="Selecciona texto para resaltarlo"
+      >
+        <Highlighter size={22} strokeWidth={1.8} />
+        <span>Resaltar</span>
       </button>
 
       <button

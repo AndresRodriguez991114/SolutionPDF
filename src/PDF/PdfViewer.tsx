@@ -11,6 +11,8 @@ import {
 
 import PdfThumbnail from "./PdfThumbnail";
 import type { PageAction } from "./pdfUtils";
+import type { NormalizedRect, PdfAnnotation } from "./pdfUtils";
+import type { PdfTool } from "../components/Toolbar";
 
 import "react-pdf/dist/Page/TextLayer.css";
 import "react-pdf/dist/Page/AnnotationLayer.css";
@@ -31,6 +33,16 @@ interface PdfViewerProps {
   onMovePage: (fromPageNumber: number, toPageNumber: number) => void;
   zoom: number;
   showThumbnails: boolean;
+  activeTool: PdfTool;
+  onPageClick: (pageNumber: number, xRatio: number, yRatio: number) => void;
+  onTextSelection: (pageNumber: number, rectangles: NormalizedRect[], selectedText: string) => void;
+  onHighlightSelection: (pageNumber: number, rectangles: NormalizedRect[]) => void;
+  annotations: PdfAnnotation[];
+  selectedAnnotationId: string | null;
+  onSelectAnnotation: (id: string | null) => void;
+  onUpdateAnnotation: (id: string, position: Pick<PdfAnnotation, "x" | "y" | "width" | "height">) => void;
+  onDeleteAnnotation: (id: string) => void;
+  onEditAnnotation: (annotation: Extract<PdfAnnotation, { kind: "text" }>) => void;
 }
 
 function PdfViewer({
@@ -44,6 +56,16 @@ function PdfViewer({
   onMovePage,
   zoom,
   showThumbnails,
+  activeTool,
+  onPageClick,
+  onTextSelection,
+  onHighlightSelection,
+  annotations,
+  selectedAnnotationId,
+  onSelectAnnotation,
+  onUpdateAnnotation,
+  onDeleteAnnotation,
+  onEditAnnotation,
 }: PdfViewerProps) {
   const [numPages, setNumPages] = useState<number>(0);
   const [documentError, setDocumentError] = useState<string | null>(null);
@@ -68,6 +90,25 @@ function PdfViewer({
     y: number;
   } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const annotationDragRef = useRef<{
+    id: string;
+    pointerId: number;
+    pageNumber: number;
+    startX: number;
+    startY: number;
+    pageWidth: number;
+    pageHeight: number;
+    position: Pick<PdfAnnotation, "x" | "y" | "width" | "height">;
+    resize: boolean;
+    signature: boolean;
+  } | null>(null);
+  const [annotationPreview, setAnnotationPreview] = useState<{
+    id: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const documentSource = useMemo(() => {
     if (!hasUnsavedChanges) return convertFileSrc(sourcePath);
     return file ? { data: new Uint8Array(file) } : null;
@@ -218,6 +259,86 @@ function PdfViewer({
     if (action === "delete") onCurrentPageChange(Math.max(1, Math.min(pageNumber, numPages - 1)));
   }
 
+  function beginAnnotationDrag(
+    event: React.PointerEvent<HTMLElement>,
+    annotation: PdfAnnotation,
+    resize = false
+  ) {
+    event.stopPropagation();
+    if (event.button !== 0) return;
+    const page = event.currentTarget.closest<HTMLElement>(".pdf-page");
+    const bounds = page?.getBoundingClientRect();
+    if (!bounds) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    annotationDragRef.current = {
+      id: annotation.id,
+      pointerId: event.pointerId,
+      pageNumber: annotation.pageNumber,
+      startX: event.clientX,
+      startY: event.clientY,
+      pageWidth: bounds.width,
+      pageHeight: bounds.height,
+      position: {
+        x: annotation.x,
+        y: annotation.y,
+        width: annotation.width,
+        height: annotation.height,
+      },
+      resize,
+      signature: annotation.kind === "signature",
+    };
+    onSelectAnnotation(annotation.id);
+    setAnnotationPreview({ id: annotation.id, ...annotationDragRef.current.position });
+  }
+
+  function moveAnnotationPointer(event: React.PointerEvent<HTMLElement>) {
+    const drag = annotationDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const deltaX = (event.clientX - drag.startX) / drag.pageWidth;
+    const deltaY = (event.clientY - drag.startY) / drag.pageHeight;
+    let position = drag.resize
+      ? {
+          ...drag.position,
+          width: Math.max(0.045, Math.min(1 - drag.position.x, drag.position.width + deltaX)),
+          height: Math.max(0.025, Math.min(1 - drag.position.y, drag.position.height + deltaY)),
+        }
+      : {
+          ...drag.position,
+          x: Math.max(0, Math.min(1 - drag.position.width, drag.position.x + deltaX)),
+          y: Math.max(0, Math.min(1 - drag.position.height, drag.position.y + deltaY)),
+        };
+    if (drag.resize && drag.signature) {
+      const aspectRatio = (520 / 150) * drag.pageHeight / drag.pageWidth;
+      const widthFromPointer = Math.max(0.045, drag.position.width + deltaX);
+      const heightFromPointer = Math.max(0.025, drag.position.height + deltaY);
+      if (Math.abs(deltaX * drag.pageWidth) >= Math.abs(deltaY * drag.pageHeight)) {
+        const width = Math.min(1 - drag.position.x, widthFromPointer);
+        position = { ...position, width, height: Math.min(1 - drag.position.y, width / aspectRatio) };
+      } else {
+        const height = Math.min(1 - drag.position.y, heightFromPointer);
+        position = { ...position, width: Math.min(1 - drag.position.x, height * aspectRatio), height };
+      }
+    }
+    setAnnotationPreview({ id: drag.id, ...position });
+  }
+
+  function finishAnnotationPointer(event: React.PointerEvent<HTMLElement>) {
+    const drag = annotationDragRef.current;
+    const preview = annotationPreview;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (preview?.id === drag.id) {
+      onUpdateAnnotation(drag.id, {
+        x: preview.x,
+        y: preview.y,
+        width: preview.width,
+        height: preview.height,
+      });
+    }
+    annotationDragRef.current = null;
+    setAnnotationPreview(null);
+  }
+
   return (
     <Document
       className="pdf-workspace"
@@ -334,21 +455,139 @@ function PdfViewer({
             (_, index) => {
 
               const pageNumber = index + 1;
+              const pageAnnotations = annotations
+                .filter((annotation) => annotation.pageNumber === pageNumber)
+                .sort((first, second) => (first.kind === "highlight" ? -1 : 1) - (second.kind === "highlight" ? -1 : 1));
 
               return (
                 <div
                   className="pdf-page"
                   id={`pdf-page-${pageNumber}`}
                   key={`page_${pageNumber}`}
-                  onClick={() =>
-                    onCurrentPageChange(pageNumber)
-                  }
+                  onClick={(event) => {
+                    onCurrentPageChange(pageNumber);
+                    if (suppressClickRef.current) {
+                      suppressClickRef.current = false;
+                      return;
+                    }
+                    if (activeTool === "text" || activeTool === "signature") {
+                      const bounds = event.currentTarget.getBoundingClientRect();
+                      onPageClick(
+                        pageNumber,
+                        Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)),
+                        Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height))
+                      );
+                    } else if (activeTool !== "highlight") onSelectAnnotation(null);
+                  }}
+                  onMouseUp={(event) => {
+                    if (activeTool !== "highlight" && activeTool !== "text") return;
+                    const selection = window.getSelection();
+                    if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
+                    const selectedText = selection.toString().trim();
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    const rectangles = Array.from(selection.getRangeAt(0).getClientRects())
+                      .map((rectangle) => {
+                        const left = Math.max(rectangle.left, bounds.left);
+                        const top = Math.max(rectangle.top, bounds.top);
+                        const right = Math.min(rectangle.right, bounds.right);
+                        const bottom = Math.min(rectangle.bottom, bounds.bottom);
+                        return {
+                          x: (left - bounds.left) / bounds.width,
+                          y: (top - bounds.top) / bounds.height,
+                          width: Math.max(0, right - left) / bounds.width,
+                          height: Math.max(0, bottom - top) / bounds.height,
+                        };
+                      })
+                      .filter((rectangle) => rectangle.width > 0 && rectangle.height > 0);
+                    if (rectangles.length) {
+                      if (activeTool === "highlight") onHighlightSelection(pageNumber, rectangles);
+                      else {
+                        suppressClickRef.current = true;
+                        onTextSelection(pageNumber, rectangles, selectedText);
+                      }
+                      selection.removeAllRanges();
+                    }
+                  }}
                 >
                   <Page
                     pageNumber={pageNumber}
                     width={750 * zoom / 100}
                     onRenderError={onPageRenderError}
                   />
+                  {pageAnnotations.flatMap((annotation) =>
+                    annotation.kind === "text"
+                      ? (annotation.coverRects || []).map((rectangle, rectangleIndex) => (
+                          <span
+                            key={`${annotation.id}-cover-${rectangleIndex}`}
+                            className="pdf-annotation-cover"
+                            style={{
+                              left: `${rectangle.x * 100}%`,
+                              top: `${rectangle.y * 100}%`,
+                              width: `${rectangle.width * 100}%`,
+                              height: `${rectangle.height * 100}%`,
+                            }}
+                          />
+                        ))
+                      : []
+                  )}
+                  {pageAnnotations.map((annotation) => {
+                    const position = annotationPreview?.id === annotation.id ? annotationPreview : annotation;
+                    const selected = selectedAnnotationId === annotation.id;
+                    return (
+                      <div
+                        key={annotation.id}
+                        className={`pdf-annotation-item annotation-${annotation.kind} ${selected ? "selected" : ""}`}
+                        style={{
+                          left: `${position.x * 100}%`,
+                          top: `${position.y * 100}%`,
+                          width: `${position.width * 100}%`,
+                          height: `${position.height * 100}%`,
+                          fontSize: `${Math.max(9, position.height * 900 * 0.72)}px`,
+                        }}
+                        onPointerDown={(event) => beginAnnotationDrag(event, annotation)}
+                        onPointerMove={moveAnnotationPointer}
+                        onPointerUp={finishAnnotationPointer}
+                        onPointerCancel={finishAnnotationPointer}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSelectAnnotation(annotation.id);
+                        }}
+                        onDoubleClick={(event) => {
+                          event.stopPropagation();
+                          if (annotation.kind === "text") onEditAnnotation(annotation);
+                        }}
+                        title={annotation.kind === "text" ? "Arrastra para mover. Doble clic para editar." : "Arrastra para mover"}
+                      >
+                        {annotation.kind === "text" && <span className="pdf-annotation-text">{annotation.text}</span>}
+                        {annotation.kind === "signature" && <img className="pdf-annotation-signature" src={annotation.dataUrl} alt="Firma" draggable={false} />}
+                        {annotation.kind === "highlight" && <span className="pdf-annotation-highlight" />}
+                        {selected && <>
+                          <button
+                            className="pdf-annotation-delete"
+                            type="button"
+                            aria-label="Eliminar anotación"
+                            title="Eliminar"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onDeleteAnnotation(annotation.id);
+                            }}
+                          ><Trash2 size={13} /></button>
+                          <button
+                            className="pdf-annotation-resize"
+                            type="button"
+                            aria-label="Cambiar tamaño"
+                            title="Arrastra para cambiar tamaño"
+                            onPointerDown={(event) => beginAnnotationDrag(event, annotation, true)}
+                            onPointerMove={moveAnnotationPointer}
+                            onPointerUp={finishAnnotationPointer}
+                            onPointerCancel={finishAnnotationPointer}
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                        </>}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             }

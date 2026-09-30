@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -23,6 +23,7 @@ import StatusBar from "./components/StatusBar";
 import {
   applyPageAction,
   mergePdfs,
+  movePageTo,
   optimizePdf,
   type PageAction,
 } from "./PDF/pdfUtils";
@@ -137,7 +138,7 @@ function App() {
   }
 
   async function loadDocument(path: string) {
-    if (dirty && !window.confirm("Hay cambios sin guardar. ¿Quieres descartarlos y abrir otro documento?")) return;
+    if (dirty && !await confirm("Hay cambios sin guardar. ¿Quieres descartarlos y abrir otro documento?")) return;
     try {
       const bytes = await readPdf(path);
       await PDFDocument.load(bytes);
@@ -251,7 +252,7 @@ function App() {
   async function handlePageAction(action: PageAction, pageNumber: number) {
     const current = pdfBytesRef.current;
     if (!current) return;
-    if (action === "delete" && !window.confirm(`¿Eliminar la página ${pageNumber}? Esta acción se puede deshacer.`)) return;
+    if (action === "delete" && !await confirm(`¿Eliminar la página ${pageNumber}? Esta acción se puede deshacer.`)) return;
     try {
       const updated = await applyPageAction(current, action, pageNumber);
       if (updated === current) return;
@@ -263,6 +264,19 @@ function App() {
       else if (action === "move-down") setCurrentPage(Math.min(pageCount, pageNumber + 1));
     } catch (error) {
       notify("No se pudo modificar la página", errorMessage(error));
+    }
+  }
+
+  async function handleMovePage(fromPageNumber: number, toPageNumber: number) {
+    const current = pdfBytesRef.current;
+    if (!current) return;
+    try {
+      const updated = await movePageTo(current, fromPageNumber, toPageNumber);
+      if (updated === current) return;
+      commitPdfBytes(updated);
+      setCurrentPage(toPageNumber);
+    } catch (error) {
+      notify("No se pudo mover la página", errorMessage(error));
     }
   }
 
@@ -290,8 +304,8 @@ function App() {
     setStatus("Cambio rehecho");
   }
 
-  function handleCloseDocument() {
-    if (dirty && !window.confirm("Hay cambios sin guardar. ¿Cerrar el documento y descartarlos?")) return;
+  async function handleCloseDocument() {
+    if (dirty && !await confirm("Hay cambios sin guardar. ¿Cerrar el documento y descartarlos?")) return;
     setPdfFile(null);
     setDocumentBytes(null);
     setPageCount(0);
@@ -301,7 +315,7 @@ function App() {
   }
 
   async function handleExit() {
-    if (dirty && !window.confirm("Hay cambios sin guardar. ¿Salir de todas formas?")) return;
+    if (dirty && !await confirm("Hay cambios sin guardar. ¿Salir de todas formas?")) return;
     try {
       await getCurrentWindow().close();
     } catch {
@@ -335,7 +349,7 @@ function App() {
       case "open": void handleOpenPdf(); break;
       case "save": void handleSave(); break;
       case "save-as": void handleSaveAs(); break;
-      case "close": handleCloseDocument(); break;
+      case "close": void handleCloseDocument(); break;
       case "print": window.print(); break;
       case "exit": void handleExit(); break;
       case "undo": handleUndo(); break;
@@ -530,6 +544,7 @@ function App() {
               onCurrentPageChange={setCurrentPage}
               onPageCountChange={setPageCount}
               onPageAction={handlePageAction}
+              onMovePage={handleMovePage}
               zoom={zoom}
               showThumbnails={showThumbnails}
             />

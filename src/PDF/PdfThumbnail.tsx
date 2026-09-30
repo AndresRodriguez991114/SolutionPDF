@@ -1,4 +1,4 @@
-import type { MouseEvent } from "react";
+import type { MouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { Page } from "react-pdf";
 import { Ellipsis } from "lucide-react";
 
@@ -7,9 +7,14 @@ interface PdfThumbnailProps {
   onClick?: () => void;
   onContextMenu?: (event: MouseEvent<HTMLButtonElement>) => void;
   onMenuClick?: (event: MouseEvent<HTMLButtonElement>) => void;
+  onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerMove?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerUp?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  onPointerCancel?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   active?: boolean;
   menuOpen?: boolean;
-  rotation?: number;
+  dragging?: boolean;
+  dropTarget?: boolean;
 }
 
 function PdfThumbnail({
@@ -17,16 +22,26 @@ function PdfThumbnail({
   onClick,
   onContextMenu,
   onMenuClick,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
   active = false,
   menuOpen = false,
-  rotation = 0,
+  dragging = false,
+  dropTarget = false,
 }: PdfThumbnailProps) {
   return (
     <div className="thumbnail-item">
       <button
-        className={`pdf-thumbnail ${active ? "active" : ""}`}
+        className={`pdf-thumbnail ${active ? "active" : ""} ${dragging ? "dragging" : ""} ${dropTarget ? "drop-target" : ""}`}
+        data-page-number={pageNumber}
         onClick={onClick}
         onContextMenu={onContextMenu}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
         title={`Página ${pageNumber}`}
         aria-current={active ? "page" : undefined}
       >
@@ -34,7 +49,6 @@ function PdfThumbnail({
           <Page
             pageNumber={pageNumber}
             width={140}
-            rotate={rotation}
             renderTextLayer={false}
             renderAnnotationLayer={false}
           />

@@ -86,6 +86,32 @@ export async function reorderPages(
   return newPdf;
 }
 
+export async function movePageTo(
+  bytes: Uint8Array,
+  fromPageNumber: number,
+  toPageNumber: number
+): Promise<Uint8Array> {
+  const pdf = await loadPdf(bytes);
+  const pageCount = pdf.getPageCount();
+  if (
+    !Number.isInteger(fromPageNumber) ||
+    !Number.isInteger(toPageNumber) ||
+    fromPageNumber < 1 ||
+    fromPageNumber > pageCount ||
+    toPageNumber < 1 ||
+    toPageNumber > pageCount
+  ) {
+    throw new Error("La página de origen o destino no es válida.");
+  }
+  if (fromPageNumber === toPageNumber) return bytes;
+
+  const order = Array.from({ length: pageCount }, (_, index) => index);
+  const [movedPage] = order.splice(fromPageNumber - 1, 1);
+  order.splice(toPageNumber - 1, 0, movedPage);
+
+  return savePdf(await reorderPages(pdf, order));
+}
+
 /**
  * Exporta el PDF modificado como bytes.
  */

@@ -28,6 +28,7 @@ interface PdfViewerProps {
   currentPage: number;
   onCurrentPageChange: (pageNumber: number) => void;
   onPageAction: (action: PageAction, pageNumber: number) => void;
+  onMovePage: (fromPageNumber: number, toPageNumber: number) => void;
   zoom: number;
   showThumbnails: boolean;
 }
@@ -40,12 +41,27 @@ function PdfViewer({
   currentPage,
   onCurrentPageChange,
   onPageAction,
+  onMovePage,
   zoom,
   showThumbnails,
 }: PdfViewerProps) {
   const [numPages, setNumPages] = useState<number>(0);
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [pageRenderError, setPageRenderError] = useState<string | null>(null);
+  const [draggedPage, setDraggedPage] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const thumbnailPanelRef = useRef<HTMLElement | null>(null);
+  const pointerDragRef = useRef<{
+    pageNumber: number;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    x: number;
+    y: number;
+    active: boolean;
+  } | null>(null);
+  const autoScrollTimerRef = useRef<number | null>(null);
+  const suppressClickRef = useRef(false);
   const [contextMenu, setContextMenu] = useState<{
     pageNumber: number;
     x: number;
@@ -56,6 +72,12 @@ function PdfViewer({
     if (!hasUnsavedChanges) return convertFileSrc(sourcePath);
     return file ? { data: new Uint8Array(file) } : null;
   }, [file, hasUnsavedChanges, sourcePath]);
+
+  useEffect(() => () => {
+    if (autoScrollTimerRef.current !== null) {
+      window.clearInterval(autoScrollTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -140,6 +162,52 @@ function PdfViewer({
     });
   }
 
+  function updateDropTarget(x: number, y: number) {
+    const drag = pointerDragRef.current;
+    const target = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-page-number]");
+    const pageNumber = Number(target?.dataset.pageNumber);
+    setDropTarget(
+      drag?.active && pageNumber >= 1 && pageNumber <= numPages && pageNumber !== drag.pageNumber
+        ? pageNumber
+        : null
+    );
+  }
+
+  function scrollWhileDragging() {
+    const drag = pointerDragRef.current;
+    const panel = thumbnailPanelRef.current;
+    if (!drag?.active || !panel) return;
+
+    const bounds = panel.getBoundingClientRect();
+    const edgeSize = Math.min(72, bounds.height / 4);
+    if (drag.y < bounds.top + edgeSize) panel.scrollTop -= 18;
+    else if (drag.y > bounds.bottom - edgeSize) panel.scrollTop += 18;
+    updateDropTarget(drag.x, drag.y);
+  }
+
+  function finishPointerDrag(x: number, y: number, cancel = false) {
+    const drag = pointerDragRef.current;
+    if (!drag) return;
+
+    if (autoScrollTimerRef.current !== null) {
+      window.clearInterval(autoScrollTimerRef.current);
+      autoScrollTimerRef.current = null;
+    }
+
+    if (drag.active && !cancel) {
+      const target = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-page-number]");
+      const targetPage = Number(target?.dataset.pageNumber);
+      suppressClickRef.current = true;
+      if (targetPage >= 1 && targetPage <= numPages && targetPage !== drag.pageNumber) {
+        onMovePage(drag.pageNumber, targetPage);
+      }
+    }
+
+    pointerDragRef.current = null;
+    setDraggedPage(null);
+    setDropTarget(null);
+  }
+
   function runAction(action: PageAction) {
     if (!contextMenu) return;
     const pageNumber = contextMenu.pageNumber;
@@ -166,7 +234,7 @@ function PdfViewer({
     >
 
       {/* PANEL DE MINIATURAS */}
-      {showThumbnails && <aside className="pdf-thumbnails-panel">
+      {showThumbnails && <aside ref={thumbnailPanelRef} className="pdf-thumbnails-panel">
 
         <div className="thumbnails-header">
           <span>Páginas</span>
@@ -183,7 +251,57 @@ function PdfViewer({
                 pageNumber={index + 1}
                 active={currentPage === index + 1}
                 menuOpen={contextMenu?.pageNumber === index + 1}
-                onClick={() => goToPage(index + 1)}
+                dragging={draggedPage === index + 1}
+                dropTarget={dropTarget === index + 1 && draggedPage !== index + 1}
+                onClick={() => {
+                  if (suppressClickRef.current) {
+                    suppressClickRef.current = false;
+                    return;
+                  }
+                  goToPage(index + 1);
+                }}
+                onPointerDown={(event) => {
+                  if (!event.isPrimary || event.button !== 0) return;
+                  pointerDragRef.current = {
+                    pageNumber: index + 1,
+                    pointerId: event.pointerId,
+                    startX: event.clientX,
+                    startY: event.clientY,
+                    x: event.clientX,
+                    y: event.clientY,
+                    active: false,
+                  };
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                }}
+                onPointerMove={(event) => {
+                  const drag = pointerDragRef.current;
+                  if (!drag || drag.pointerId !== event.pointerId) return;
+                  drag.x = event.clientX;
+                  drag.y = event.clientY;
+
+                  if (!drag.active && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 6) {
+                    drag.active = true;
+                    setDraggedPage(drag.pageNumber);
+                    autoScrollTimerRef.current = window.setInterval(scrollWhileDragging, 40);
+                  }
+
+                  if (drag.active) {
+                    event.preventDefault();
+                    updateDropTarget(event.clientX, event.clientY);
+                  }
+                }}
+                onPointerUp={(event) => {
+                  if (pointerDragRef.current?.pointerId !== event.pointerId) return;
+                  finishPointerDrag(event.clientX, event.clientY);
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                  }
+                }}
+                onPointerCancel={(event) => {
+                  if (pointerDragRef.current?.pointerId === event.pointerId) {
+                    finishPointerDrag(event.clientX, event.clientY, true);
+                  }
+                }}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   openPageMenu(index + 1, event.clientX, event.clientY);

@@ -481,7 +481,12 @@ button { font: inherit; }
   cursor: pointer;
   transition: border-color 0.15s ease,
               background 0.15s ease;
+  cursor: grab;
 }
+
+.pdf-thumbnail:active { cursor: grabbing; }
+.pdf-thumbnail.dragging { opacity: .45; }
+.pdf-thumbnail.drop-target { border-color: #729679; background: #e8f0e8; }
 
 .pdf-thumbnail:hover {
   background: #e9e9ed;

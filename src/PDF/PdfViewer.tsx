@@ -45,16 +45,13 @@ function PdfViewer({
 }: PdfViewerProps) {
   const [numPages, setNumPages] = useState<number>(0);
   const [documentError, setDocumentError] = useState<string | null>(null);
+  const [pageRenderError, setPageRenderError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     pageNumber: number;
     x: number;
     y: number;
   } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  const thumbnailSource = useMemo(() => {
-    if (!hasUnsavedChanges) return convertFileSrc(sourcePath);
-    return file ? { data: new Uint8Array(file) } : null;
-  }, [file, hasUnsavedChanges, sourcePath]);
   const documentSource = useMemo(() => {
     if (!hasUnsavedChanges) return convertFileSrc(sourcePath);
     return file ? { data: new Uint8Array(file) } : null;
@@ -99,6 +96,7 @@ function PdfViewer({
   }) {
     setNumPages(numPages);
     setDocumentError(null);
+    setPageRenderError(null);
     if (onPageCountChange) {
       onPageCountChange(numPages);
     }
@@ -107,6 +105,11 @@ function PdfViewer({
   function onDocumentLoadError(error: Error) {
     console.error("SolutionsPDF: no se pudo renderizar el documento", error);
     setDocumentError(error.message);
+  }
+
+  function onPageRenderError(error: Error) {
+    console.error("SolutionsPDF: no se pudo dibujar una página", error);
+    setPageRenderError(error.message);
   }
 
   function goToPage(pageNumber: number) {
@@ -148,7 +151,19 @@ function PdfViewer({
   }
 
   return (
-    <div className="pdf-workspace">
+    <Document
+      className="pdf-workspace"
+      file={documentSource}
+      suspense={false}
+      onLoadSuccess={onDocumentLoadSuccess}
+      onLoadError={onDocumentLoadError}
+      loading={<div className="pdf-loading">Cargando documento...</div>}
+      error={
+        <div className="pdf-error">
+          No se pudo mostrar el PDF: {documentError || "verifica que el archivo sea válido y no tenga contraseña"}
+        </div>
+      }
+    >
 
       {/* PANEL DE MINIATURAS */}
       {showThumbnails && <aside className="pdf-thumbnails-panel">
@@ -158,54 +173,30 @@ function PdfViewer({
           <span>{numPages}</span>
         </div>
 
-        <Document
-          file={thumbnailSource}
-          onLoadSuccess={onDocumentLoadSuccess}
-          onLoadError={onDocumentLoadError}
-          loading={
-            <div className="pdf-loading">
-              Cargando páginas...
-            </div>
-          }
-          error={
-            <div className="pdf-error">
-              No se pudo mostrar el PDF: {documentError || "verifica que el archivo sea válido y no tenga contraseña"}
-            </div>
-          }
-        >
-          <div className="thumbnails-list">
+        <div className="thumbnails-list">
 
-            {Array.from(
-              { length: numPages },
-              (_, index) => (
-                <PdfThumbnail
-                  key={`thumbnail_${index + 1}`}
-                  pageNumber={index + 1}
-                  active={
-                    currentPage === index + 1
-                  }
-                  menuOpen={contextMenu?.pageNumber === index + 1}
-                  onClick={() =>
-                    goToPage(index + 1)
-                  }
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    openPageMenu(
-                      index + 1,
-                      event.clientX,
-                      event.clientY
-                    );
-                  }}
-                  onMenuClick={(event) => {
-                    const bounds = event.currentTarget.getBoundingClientRect();
-                    openPageMenu(index + 1, bounds.right + 6, bounds.top);
-                  }}
-                />
-              )
-            )}
+          {Array.from(
+            { length: numPages },
+            (_, index) => (
+              <PdfThumbnail
+                key={`thumbnail_${index + 1}`}
+                pageNumber={index + 1}
+                active={currentPage === index + 1}
+                menuOpen={contextMenu?.pageNumber === index + 1}
+                onClick={() => goToPage(index + 1)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  openPageMenu(index + 1, event.clientX, event.clientY);
+                }}
+                onMenuClick={(event) => {
+                  const bounds = event.currentTarget.getBoundingClientRect();
+                  openPageMenu(index + 1, bounds.right + 6, bounds.top);
+                }}
+              />
+            )
+          )}
 
-          </div>
-        </Document>
+        </div>
 
       </aside>}
 
@@ -218,21 +209,7 @@ function PdfViewer({
           </span>
         </div>
 
-        <Document
-          file={documentSource}
-          onLoadSuccess={onDocumentLoadSuccess}
-          onLoadError={onDocumentLoadError}
-          loading={
-            <div className="pdf-loading">
-              Cargando documento...
-            </div>
-          }
-          error={
-            <div className="pdf-error">
-              No se pudo mostrar el PDF: {documentError || "verifica que el archivo sea válido y no tenga contraseña"}
-            </div>
-          }
-        >
+        {pageRenderError && <div className="pdf-error">No se pudo dibujar la página: {pageRenderError}</div>}
 
           {Array.from(
             { length: numPages },
@@ -252,13 +229,12 @@ function PdfViewer({
                   <Page
                     pageNumber={pageNumber}
                     width={750 * zoom / 100}
+                    onRenderError={onPageRenderError}
                   />
                 </div>
               );
             }
           )}
-
-        </Document>
 
       </div>
 
@@ -325,7 +301,7 @@ function PdfViewer({
           </button>
         </div>
       )}
-    </div>
+    </Document>
   );
 }
 

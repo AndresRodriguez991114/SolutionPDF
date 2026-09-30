@@ -58,6 +58,7 @@ function readPreferences(): { zoom: number; showThumbnails: boolean } {
 function App() {
   const [pdfFile, setPdfFile] = useState<string | null>(null);
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
+  const [documentRevision, setDocumentRevision] = useState(0);
   const pdfBytesRef = useRef<Uint8Array | null>(null);
   const undoStack = useRef<Uint8Array[]>([]);
   const redoStack = useRef<Uint8Array[]>([]);
@@ -84,6 +85,7 @@ function App() {
   function setDocumentBytes(bytes: Uint8Array | null) {
     pdfBytesRef.current = bytes;
     setPdfBytes(bytes);
+    setDocumentRevision((revision) => revision + 1);
   }
 
   function notify(title: string, body: string) {
@@ -373,6 +375,13 @@ function App() {
       if (menu && !menuRef.current?.contains(event.target as Node)) setMenu(null);
     }
     function handleKeyDown(event: KeyboardEvent) {
+      if (
+        pdfFile &&
+        (event.key === "F5" || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r"))
+      ) {
+        event.preventDefault();
+        return;
+      }
       if (event.key === "Escape") {
         setMenu(null);
         setDialog(null);
@@ -513,6 +522,7 @@ function App() {
           ) : (
 
             <PdfViewer
+              key={documentRevision}
               file={pdfBytes}
               sourcePath={pdfFile}
               hasUnsavedChanges={dirty}

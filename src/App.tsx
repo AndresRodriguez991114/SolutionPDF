@@ -716,6 +716,10 @@ function App() {
     setEditDialogOpen(false);
   }
 
+  function handlePrint() {
+    if (pdfFile) window.print();
+  }
+
   function handleMenuAction(action: string) {
     setMenu(null);
     switch (action) {
@@ -723,7 +727,7 @@ function App() {
       case "save": void handleSave(); break;
       case "save-as": void handleSaveAs(); break;
       case "close": void handleCloseDocument(); break;
-      case "print": window.print(); break;
+      case "print": handlePrint(); break;
       case "exit": void handleExit(); break;
       case "undo": handleUndo(); break;
       case "redo": handleRedo(); break;
@@ -815,7 +819,7 @@ function App() {
       if (key === "s") { event.preventDefault(); void (event.shiftKey ? handleSaveAs() : handleSave()); }
       if (key === "z") { event.preventDefault(); event.shiftKey ? handleRedo() : handleUndo(); }
       if (key === "y") { event.preventDefault(); handleRedo(); }
-      if (key === "p") { event.preventDefault(); window.print(); }
+      if (key === "p") { event.preventDefault(); handlePrint(); }
       if (key === "f") { event.preventDefault(); setSearchRequest((request) => request + 1); }
     }
     document.addEventListener("pointerdown", handleOutsideClick);
@@ -905,6 +909,7 @@ function App() {
         activeTool={activeTool}
         onMergePdf={handleMergePdf}
         onOptimizePdf={handleOptimizePdf}
+        onPrint={handlePrint}
         onCheckUpdates={handleCheckUpdates}
         hasDocument={Boolean(pdfFile)}
       />

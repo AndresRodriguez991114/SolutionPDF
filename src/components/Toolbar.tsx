@@ -5,6 +5,7 @@ import {
   Pencil,
   Highlighter,
   PenLine,
+  Printer,
   RefreshCw,
   Type,
 } from "lucide-react";
@@ -19,6 +20,7 @@ interface ToolbarProps {
   activeTool: PdfTool;
   onMergePdf: () => void;
   onOptimizePdf: () => void;
+  onPrint: () => void;
   onCheckUpdates: () => void;
   hasDocument: boolean;
 }
@@ -31,6 +33,7 @@ function Toolbar({
   activeTool,
   onMergePdf,
   onOptimizePdf,
+  onPrint,
   onCheckUpdates,
   hasDocument,
 }: ToolbarProps) {
@@ -101,6 +104,16 @@ function Toolbar({
       >
         <Minimize2 size={22} strokeWidth={1.8} />
         <span>Optimizar PDF</span>
+      </button>
+
+      <button
+        className="tool-button"
+        onClick={onPrint}
+        disabled={!hasDocument}
+        title={hasDocument ? "Imprimir el PDF" : "Abre un PDF primero"}
+      >
+        <Printer size={22} strokeWidth={1.8} />
+        <span>Imprimir</span>
       </button>
 
       <div className="toolbar-spacer" />

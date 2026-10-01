@@ -59,7 +59,12 @@ function readRecentFiles(): string[] {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Ocurrió un error inesperado.";
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+  return "Ocurrió un error inesperado.";
 }
 
 function formatBytes(bytes: number): string {
@@ -167,11 +172,13 @@ function App() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [closeConfirmationOpen, setCloseConfirmationOpen] = useState(false);
+  const closeApprovedRef = useRef(false);
   const [menu, setMenu] = useState<AppMenu | null>(null);
   const [dialog, setDialog] = useState<{ title: string; body: string } | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<PdfTool>(null);
-  const [textTarget, setTextTarget] = useState<{ pageNumber: number; x: number; y: number; rectangles?: NormalizedRect[]; annotationId?: string } | null>(null);
+  const [textTarget, setTextTarget] = useState<{ pageNumber: number; x: number; y: number; rectangles?: NormalizedRect[]; annotationId?: string; selectedText?: string } | null>(null);
   const [textInput, setTextInput] = useState("");
   const [annotations, setAnnotations] = useState<PdfAnnotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
@@ -312,8 +319,8 @@ function App() {
     return path;
   }
 
-  async function handleSaveAs(bytes = pdfBytesRef.current, suggestedName = fileName || "documento.pdf") {
-    if (!bytes) return;
+  async function handleSaveAs(bytes = pdfBytesRef.current, suggestedName = fileName || "documento.pdf"): Promise<boolean> {
+    if (!bytes) return false;
     try {
       const output = bytes === pdfBytesRef.current ? await applyAnnotationsToPdf(bytes, annotations) : bytes;
       const path = await saveCopy(output, suggestedName);
@@ -322,15 +329,18 @@ function App() {
         setPdfFile(path);
         setDirty(false);
         setStatus("Guardado");
+        return true;
       }
+      return false;
     } catch (error) {
       notify("No se pudo guardar el PDF", errorMessage(error));
+      return false;
     }
   }
 
-  async function handleSave() {
+  async function handleSave(): Promise<boolean> {
     const bytes = pdfBytesRef.current;
-    if (!bytes) return;
+    if (!bytes) return false;
     if (!pdfFile) return handleSaveAs();
     try {
       const output = await applyAnnotationsToPdf(bytes, annotations);
@@ -338,8 +348,10 @@ function App() {
       await persistEditableSnapshot(pdfFile, bytes, annotations, output);
       setDirty(false);
       setStatus("Guardado");
+      return true;
     } catch (error) {
       notify("No se pudo guardar el PDF", `${errorMessage(error)}\nPrueba con “Guardar como...” en otra ubicación.`);
+      return false;
     }
   }
 
@@ -466,7 +478,7 @@ function App() {
   function handleTextSelection(pageNumber: number, rectangles: NormalizedRect[], selectedText: string) {
     const first = rectangles[0];
     if (!first) return;
-    setTextTarget({ pageNumber, x: first.x, y: first.y, rectangles });
+    setTextTarget({ pageNumber, x: first.x, y: first.y, rectangles, selectedText });
     setTextInput(selectedText);
   }
 
@@ -491,6 +503,25 @@ function App() {
           ? { ...annotation, text }
           : annotation
       ));
+    } else if (target.selectedText !== undefined) {
+      const current = pdfBytesRef.current;
+      if (!current) return;
+      try {
+        const updated = await invoke<number[]>("replace_pdf_text", {
+          bytes: Array.from(current),
+          pageNumber: target.pageNumber,
+          selectionRects: target.rectangles || [],
+          selectedText: target.selectedText,
+          replacementText: text,
+        });
+        commitPdfBytes(Uint8Array.from(updated));
+        setTextTarget(null);
+        setActiveTool(null);
+        setStatus("Texto original editado con PDFium");
+      } catch (error) {
+        notify("No se pudo editar el texto original", errorMessage(error));
+      }
+      return;
     } else {
       const first = target.rectangles?.[0];
       const right = target.rectangles?.reduce((edge, rectangle) => Math.max(edge, rectangle.x + rectangle.width), first ? first.x + first.width : 0);
@@ -611,11 +642,21 @@ function App() {
   }
 
   async function handleExit() {
-    if (dirty && !await confirm("Hay cambios sin guardar. ¿Salir de todas formas?")) return;
     try {
       await getCurrentWindow().close();
     } catch {
       notify("Salir", "Cierra esta ventana para salir de SolutionsPDF.");
+    }
+  }
+
+  async function finishWindowClose() {
+    closeApprovedRef.current = true;
+    setCloseConfirmationOpen(false);
+    try {
+      await getCurrentWindow().close();
+    } catch (error) {
+      closeApprovedRef.current = false;
+      notify("No se pudo cerrar SolutionsPDF", errorMessage(error));
     }
   }
 
@@ -716,6 +757,23 @@ function App() {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [menu, pdfFile, dirty, zoom, showThumbnails]);
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWindow().onCloseRequested((event) => {
+      if (closeApprovedRef.current || !dirty) return;
+      event.preventDefault();
+      setCloseConfirmationOpen(true);
+    }).then((stopListening) => {
+      if (active) unlisten = stopListening;
+      else stopListening();
+    });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [dirty]);
 
   return (
     <div className={`app ${readingMode ? "reading-mode" : ""}`}>
@@ -894,7 +952,7 @@ function App() {
         <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setTextTarget(null); }}>
           <section className="app-dialog" role="dialog" aria-modal="true" aria-labelledby="text-dialog-title">
             <h2 id="text-dialog-title">{textTarget.rectangles || textTarget.annotationId ? "Editar texto" : "Agregar texto"}</h2>
-            <p>{textTarget.rectangles ? "El texto seleccionado se cubrirá y se colocará el reemplazo encima." : textTarget.annotationId ? "Edita el texto de esta anotación." : `Se insertará en la página ${textTarget.pageNumber}, en el punto seleccionado.`}</p>
+            <p>{textTarget.selectedText !== undefined ? "PDFium reemplaza el fragmento dentro del PDF. Si la fuente no está disponible o el texto es mucho más largo, el resultado puede variar." : textTarget.annotationId ? "Edita el texto de esta anotación." : `Se insertará en la página ${textTarget.pageNumber}, en el punto seleccionado.`}</p>
             <textarea
               className="annotation-input"
               autoFocus
@@ -966,6 +1024,19 @@ function App() {
         </div>
       )}
 
+      {closeConfirmationOpen && (
+        <div className="dialog-backdrop" role="presentation">
+          <section className="app-dialog" role="alertdialog" aria-modal="true" aria-labelledby="close-confirmation-title">
+            <h2 id="close-confirmation-title">¿Guardar los cambios?</h2>
+            <p>Hay cambios sin guardar en {fileName ? `“${fileName}”` : "el documento"}.</p>
+            <div className="dialog-footer">
+              <button onClick={() => setCloseConfirmationOpen(false)}>Cancelar</button>
+              <button onClick={() => void finishWindowClose()}>Descartar</button>
+              <button className="dialog-primary" onClick={() => void handleSave().then(async (saved) => { if (saved) await finishWindowClose(); })}>Guardar</button>
+            </div>
+          </section>
+        </div>
+      )}
       {dialog && (
         <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialog(null); }}>
           <section className="app-dialog" role="dialog" aria-modal="true" aria-labelledby="notice-title">

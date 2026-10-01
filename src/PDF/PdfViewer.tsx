@@ -121,6 +121,16 @@ function PdfViewer({
   }, []);
 
   useEffect(() => {
+    if (numPages === 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      document
+        .getElementById(`pdf-page-${currentPage}`)
+        ?.scrollIntoView({ behavior: "auto", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentPage, file, numPages]);
+
+  useEffect(() => {
     if (!contextMenu) {
       return;
     }

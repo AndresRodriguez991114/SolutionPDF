@@ -39,7 +39,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "RWQNWeGDaL9QAt/9U7m7z/as2+nbkY5uAx6f1ExfttSKDstXBB/iY1Co",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAyNTBCRjY4ODNFMTU5MEQKUldRTldlR0RhTDlRQXQvOVU3bTd6L2FzMituYmtZNXVBeDZmMUV4ZnR0U0tEc3RYQkIvaVkxQ28K",
       "endpoints": [
         "https://github.com/AndresRodriguez991114/SolutionPDF/releases/latest/download/latest.json"
       ]

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "SolutionsPDF",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.solutionspdf.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -27,6 +27,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -35,5 +36,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "RWQNWeGDaL9QAt/9U7m7z/as2+nbkY5uAx6f1ExfttSKDstXBB/iY1Co",
+      "endpoints": [
+        "https://github.com/AndresRodriguez991114/SolutionPDF/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

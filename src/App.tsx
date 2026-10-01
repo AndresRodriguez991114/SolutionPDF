@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check } from "@tauri-apps/plugin-updater";
 import {
   ArrowDown,
   ArrowUp,
@@ -675,6 +677,38 @@ function App() {
     }
   }
 
+  async function handleCheckUpdates() {
+    try {
+      setStatus("Buscando actualizaciones...");
+      const update = await check();
+      if (!update) {
+        setStatus("La aplicación está actualizada");
+        notify("Sin actualizaciones", "Tienes la versión más reciente de SolutionsPDF.");
+        return;
+      }
+
+      const details = update.body ? `\n\n${update.body}` : "";
+      const shouldInstall = await confirm(
+        `Está disponible SolutionsPDF ${update.version}.${details}\n\n¿Descargar e instalar ahora?`,
+        {
+          title: "Actualización disponible",
+          kind: "info",
+          okLabel: "Actualizar",
+          cancelLabel: "Más tarde",
+        },
+      );
+      if (!shouldInstall) return;
+
+      setStatus("Descargando actualización...");
+      await update.downloadAndInstall();
+      setStatus("Reiniciando SolutionsPDF...");
+      await relaunch();
+    } catch (error) {
+      setStatus("No se pudo buscar actualizaciones");
+      notify("No se pudieron buscar actualizaciones", errorMessage(error));
+    }
+  }
+
   function runPageAction(action: PageAction) {
     void handlePageAction(action, currentPage);
     setMenu(null);
@@ -713,8 +747,8 @@ function App() {
       case "toggle-panel": updatePreferences({ showThumbnails: !showThumbnails }); break;
       case "reading-mode": setReadingMode((value) => !value); break;
       case "manual": notify("Manual de usuario", "Abre un PDF desde Archivo. Usa el clic derecho o los tres puntos de una miniatura para rotar, reordenar o eliminar páginas. Guarda con Ctrl+S y deshaz con Ctrl+Z."); break;
-      case "about": notify("Acerca de SolutionsPDF", "SolutionsPDF 0.1.0\nGestor local de documentos PDF. Los archivos se procesan en este dispositivo."); break;
-      case "updates": notify("Actualizaciones", "La comprobación automática no está configurada en esta versión. Versión instalada: 0.1.0."); break;
+      case "about": notify("Acerca de SolutionsPDF", "SolutionsPDF 0.1.1\nGestor local de documentos PDF. Los archivos se procesan en este dispositivo."); break;
+      case "updates": void handleCheckUpdates(); break;
       case "properties": void handleFileProperties(); break;
       case "edit-page": setEditDialogOpen(true); break;
       case "merge": void handleMergePdf(); break;
@@ -838,7 +872,7 @@ function App() {
         activeTool={activeTool}
         onMergePdf={handleMergePdf}
         onOptimizePdf={handleOptimizePdf}
-        onCheckUpdates={() => handleMenuAction("updates")}
+        onCheckUpdates={handleCheckUpdates}
         hasDocument={Boolean(pdfFile)}
       />
 

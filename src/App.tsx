@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ArrowDown,
   ArrowUp,
+  Info,
   Check,
   Eraser,
   FileText,
@@ -1038,9 +1039,15 @@ function App() {
         </div>
       )}
       {dialog && (
-        <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialog(null); }}>
-          <section className="app-dialog" role="dialog" aria-modal="true" aria-labelledby="notice-title">
-            <h2 id="notice-title">{dialog.title}</h2>
+        <div className="dialog-backdrop notice-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialog(null); }}>
+          <section className="app-dialog notice-dialog" role="dialog" aria-modal="true" aria-labelledby="notice-title">
+            <div className="notice-heading">
+              <span className="notice-icon"><Info size={21} strokeWidth={2} /></span>
+              <div className="notice-heading-copy">
+                <span className="notice-kicker">AVISO</span>
+                <h2 id="notice-title">{dialog.title}</h2>
+              </div>
+            </div>
             <p className="dialog-message">{dialog.body}</p>
             <div className="dialog-footer"><span /><button className="dialog-primary" onClick={() => setDialog(null)}>Aceptar</button></div>
           </section>

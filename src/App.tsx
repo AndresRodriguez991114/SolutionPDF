@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check } from "@tauri-apps/plugin-updater";
@@ -747,7 +748,7 @@ function App() {
       case "toggle-panel": updatePreferences({ showThumbnails: !showThumbnails }); break;
       case "reading-mode": setReadingMode((value) => !value); break;
       case "manual": notify("Manual de usuario", "Abre un PDF desde Archivo. Usa el clic derecho o los tres puntos de una miniatura para rotar, reordenar o eliminar páginas. Guarda con Ctrl+S y deshaz con Ctrl+Z."); break;
-      case "about": notify("Acerca de SolutionsPDF", "SolutionsPDF 0.1.1\nGestor local de documentos PDF. Los archivos se procesan en este dispositivo."); break;
+      case "about": notify("Acerca de SolutionsPDF", "SolutionsPDF 0.1.2\nGestor local de documentos PDF. Los archivos se procesan en este dispositivo."); break;
       case "updates": void handleCheckUpdates(); break;
       case "properties": void handleFileProperties(); break;
       case "edit-page": setEditDialogOpen(true); break;
@@ -755,6 +756,38 @@ function App() {
       case "optimize": void handleOptimizePdf(); break;
     }
   }
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+
+    async function openPendingPdfs() {
+      const paths = await invoke<string[]>("take_pending_pdf_paths");
+      for (const path of paths) {
+        await loadDocument(path);
+      }
+    }
+
+    void listen("open-pdf-requested", () => {
+      void openPendingPdfs().catch((error: unknown) => {
+        notify("No se pudo abrir el PDF", errorMessage(error));
+      });
+    }).then((stopListening) => {
+      if (!active) {
+        stopListening();
+        return;
+      }
+      unlisten = stopListening;
+      void openPendingPdfs().catch((error: unknown) => {
+        notify("No se pudo abrir el PDF", errorMessage(error));
+      });
+    });
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     function handleOutsideClick(event: PointerEvent) {

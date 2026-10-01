@@ -3,10 +3,32 @@ use pdfium_bundled::pdfium_render::prelude::{
     PdfPageObjectCommon, PdfPageObjectsCommon, PdfPoints,
 };
 use serde::Deserialize;
-use std::sync::OnceLock;
+use std::{
+    path::Path,
+    sync::{Mutex, OnceLock},
+};
+use tauri::{Emitter, Manager, State};
 
 static PDFIUM: OnceLock<Result<pdfium_bundled::pdfium_render::prelude::Pdfium, String>> =
     OnceLock::new();
+
+struct PendingPdfPaths(Mutex<Vec<String>>);
+
+fn is_pdf_path(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+}
+
+#[tauri::command]
+fn take_pending_pdf_paths(state: State<'_, PendingPdfPaths>) -> Vec<String> {
+    state
+        .0
+        .lock()
+        .map(|mut paths| std::mem::take(&mut *paths))
+        .unwrap_or_default()
+}
 
 fn shared_pdfium() -> Result<&'static pdfium_bundled::pdfium_render::prelude::Pdfium, String> {
     match PDFIUM.get_or_init(|| pdfium_bundled::bind_bundled().map_err(|error| error.to_string())) {
@@ -311,12 +333,43 @@ fn replace_pdf_text(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let startup_paths = std::env::args()
+        .skip(1)
+        .filter(|argument| is_pdf_path(argument))
+        .collect();
+
     tauri::Builder::default()
+        .manage(PendingPdfPaths(Mutex::new(startup_paths)))
+        .plugin(tauri_plugin_single_instance::init(
+            |app, arguments, _cwd| {
+                let paths: Vec<String> = arguments
+                    .into_iter()
+                    .skip(1)
+                    .filter(|argument| is_pdf_path(argument))
+                    .collect();
+                if !paths.is_empty() {
+                    if let Some(pending_paths) = app.try_state::<PendingPdfPaths>() {
+                        if let Ok(mut pending_paths) = pending_paths.0.lock() {
+                            pending_paths.extend(paths);
+                        }
+                    }
+                    let _ = app.emit("open-pdf-requested", ());
+                }
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_focus();
+                }
+            },
+        ))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![greet, save_pdf, replace_pdf_text])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            save_pdf,
+            replace_pdf_text,
+            take_pending_pdf_paths
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

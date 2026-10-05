@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Etiqueta que quieres publicar, por ejemplo v0.1.5"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -13,6 +19,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - uses: actions/setup-node@v4
         with:
@@ -26,8 +34,19 @@ jobs:
       - name: Set package version from tag
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}" -replace '^v', ''
-          npm version $version --no-git-tag-version --ignore-scripts
+          $releaseTag = "${{ inputs.tag || github.ref_name }}"
+          if ($releaseTag -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "La etiqueta '$releaseTag' debe tener el formato vX.Y.Z."
+          }
+
+          $version = $releaseTag.Substring(1)
+          $currentVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($currentVersion -eq $version) {
+            Write-Host "package.json ya usa la versión $version."
+          } else {
+            npm version $version --no-git-tag-version --ignore-scripts
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - uses: tauri-apps/tauri-action@v0
         env:
@@ -35,8 +54,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: SolutionsPDF ${{ github.ref_name }}
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: SolutionsPDF ${{ inputs.tag || github.ref_name }}
           releaseBody: Actualización de SolutionsPDF.
           releaseDraft: false
           prerelease: false

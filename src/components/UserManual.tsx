@@ -86,7 +86,8 @@ const sections: ManualSection[] = [
     title: "Atajos de teclado",
     introduction: "Los atajos principales también aparecen junto a las acciones correspondientes en los menús.",
     topics: [
-      { title: "Archivos y edición", body: "Ctrl+O abrir · Ctrl+S guardar · Ctrl+Shift+S guardar como · Ctrl+Z deshacer · Ctrl+Y rehacer · Ctrl+P imprimir · Ctrl+F buscar documentos recientes." },
+      { title: "Buscar en un PDF", body: "Pulsa Ctrl+Espacio, escribe el texto y presiona Enter. El panel muestra fragmentos, coincidencias por página y resalta los resultados; selecciónalos o usa las flechas para recorrerlos. Ctrl+F sigue buscando documentos recientes. Los PDF escaneados sin texto reconocible requieren OCR y no se pueden buscar." },
+      { title: "Archivos y edición", body: "Ctrl+O abrir · Ctrl+S guardar · Ctrl+Shift+S guardar como · Ctrl+Z deshacer · Ctrl+Y rehacer · Ctrl+P imprimir." },
       { title: "Zoom y texto", body: "Ctrl++ acercar · Ctrl+- alejar · Ctrl+0 restablecer zoom · Ctrl+Enter confirmar texto. En algunos teclados, para escribir + hay que mantener Shift." },
       { title: "Procesamiento local", body: "La lectura, edición, unión y optimización se procesan en este dispositivo. Se necesita conexión a Internet únicamente para buscar actualizaciones." },
     ],

@@ -238,6 +238,7 @@ function App() {
   } = preferences;
   const [readingMode, setReadingMode] = useState(false);
   const [searchRequest, setSearchRequest] = useState(0);
+  const [pdfSearchRequest, setPdfSearchRequest] = useState(0);
   const [status, setStatus] = useState("Listo");
 
   const fileName = pdfFile?.split(/[\\/]/).pop();
@@ -792,6 +793,7 @@ function App() {
         break;
       }
       case "search": setSearchRequest((request) => request + 1); break;
+      case "search-pdf": setPdfSearchRequest((request) => request + 1); break;
       case "preferences": setPreferencesOpen(true); break;
       case "zoom-in": updatePreferences({ zoom: Math.min(150, zoom + 10) }); break;
       case "zoom-out": updatePreferences({ zoom: Math.max(40, zoom - 10) }); break;
@@ -863,6 +865,11 @@ function App() {
         setProperties(null);
         setReadingMode(false);
       }
+      if ((event.ctrlKey || event.metaKey) && event.code === "Space") {
+        event.preventDefault();
+        if (pdfFile) setPdfSearchRequest((request) => request + 1);
+        return;
+      }
       if (!(event.ctrlKey || event.metaKey)) return;
       const key = event.key.toLowerCase();
       if (key === "+" || key === "=" || event.code === "NumpadAdd") {
@@ -932,7 +939,7 @@ function App() {
           {(["Archivo", "Editar", "Ver", "Ayuda"] as AppMenu[]).map((item) => {
             const items: Record<AppMenu, [string, string, string][]> = {
               Archivo: [["Abrir PDF", "open", "Ctrl+O"], ["Guardar", "save", "Ctrl+S"], ["Guardar como...", "save-as", "Ctrl+Shift+S"], ["Unir PDF...", "merge", ""], ["Imprimir", "print", "Ctrl+P"], ["Propiedades del archivo", "properties", ""], ["Cerrar documento", "close", ""], ["Salir", "exit", ""]],
-              Editar: [["Deshacer", "undo", "Ctrl+Z"], ["Rehacer", "redo", "Ctrl+Y"], ["Copiar texto", "copy", "Ctrl+C"], ["Seleccionar todo", "select-all", "Ctrl+A"], ["Buscar documentos...", "search", "Ctrl+F"], ["Editar página actual...", "edit-page", ""], ["Preferencias", "preferences", ""]],
+              Editar: [["Deshacer", "undo", "Ctrl+Z"], ["Rehacer", "redo", "Ctrl+Y"], ["Copiar texto", "copy", "Ctrl+C"], ["Seleccionar todo", "select-all", "Ctrl+A"], ["Buscar documentos...", "search", "Ctrl+F"], ["Buscar dentro del PDF...", "search-pdf", "Ctrl+Espacio"], ["Editar página actual...", "edit-page", ""], ["Preferencias", "preferences", ""]],
               Ver: [[readingMode ? "Salir de modo lectura" : "Modo de lectura", "reading-mode", ""], ["Ajustar a la ventana", "fit", ""], ["Reducir zoom", "zoom-out", "Ctrl+-"], [`Zoom ${zoom}%`, "zoom-reset", "Ctrl+0"], ["Aumentar zoom", "zoom-in", "Ctrl++"], ["Rotar página actual", "rotate-view", ""], [showThumbnails ? "Ocultar miniaturas" : "Mostrar miniaturas", "toggle-panel", ""]],
               Ayuda: [["Manual de usuario (offline)", "manual", ""], ["Acerca de SolutionsPDF", "about", ""], ["Verificar actualizaciones", "updates", ""]],
             };
@@ -941,7 +948,7 @@ function App() {
                 <button aria-haspopup="menu" aria-expanded={menu === item} onClick={() => setMenu((current) => current === item ? null : item)}>{item}</button>
                 {menu === item && <div className="menu-dropdown" role="menu" aria-label={item}>
                   {items[item].map(([label, action, shortcut]) => {
-                    const needsDocument = ["save", "save-as", "close", "print", "properties", "edit-page", "rotate-view"].includes(action);
+                    const needsDocument = ["save", "save-as", "close", "print", "properties", "edit-page", "rotate-view", "search-pdf"].includes(action);
                     const disabled = (needsDocument && !pdfFile) || (action === "undo" && !canUndo) || (action === "redo" && !canRedo);
                     return <button key={action} role="menuitem" disabled={disabled} onClick={() => handleMenuAction(action)}>
                       <span>{label}</span>{shortcut && <kbd>{shortcut}</kbd>}
@@ -1052,6 +1059,7 @@ function App() {
               onMovePage={handleMovePage}
               zoom={zoom}
               onZoomChange={(nextZoom) => updatePreferences({ zoom: nextZoom })}
+              pdfSearchRequest={pdfSearchRequest}
               showThumbnails={showThumbnails}
               thumbnailsCollapsed={thumbnailsPanelCollapsed}
               thumbnailsWidth={thumbnailsPanelWidth}

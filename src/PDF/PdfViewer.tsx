@@ -1,14 +1,19 @@
 import { Document, Page, pdfjs } from "react-pdf";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import type { PDFDocumentProxy } from "pdfjs-dist";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   RotateCcw,
   RotateCw,
+  Search,
   Trash2,
+  X,
 } from "lucide-react";
 
 import PdfThumbnail from "./PdfThumbnail";
@@ -36,6 +41,7 @@ interface PdfViewerProps {
   onMovePage: (fromPageNumber: number, toPageNumber: number) => void;
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  pdfSearchRequest: number;
   showThumbnails: boolean;
   thumbnailsCollapsed: boolean;
   thumbnailsWidth: number;
@@ -53,6 +59,29 @@ interface PdfViewerProps {
   onEditAnnotation: (annotation: Extract<PdfAnnotation, { kind: "text" }>) => void;
 }
 
+interface PdfSearchMatch {
+  pageNumber: number;
+  occurrenceCount: number;
+  snippet: string;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character] || character);
+}
+
+function highlightSearchText(text: string, query: string): string {
+  const safeText = escapeHtml(text);
+  const safeQuery = escapeHtml(query).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!safeQuery) return safeText;
+  return safeText.replace(new RegExp(safeQuery, "gi"), '<mark class="pdf-search-highlight">$&</mark>');
+}
+
 function PdfViewer({
   file,
   sourcePath,
@@ -64,6 +93,7 @@ function PdfViewer({
   onMovePage,
   zoom,
   onZoomChange,
+  pdfSearchRequest,
   showThumbnails,
   thumbnailsCollapsed,
   thumbnailsWidth,
@@ -85,8 +115,18 @@ function PdfViewer({
   const [pageRenderError, setPageRenderError] = useState<string | null>(null);
   const [draggedPage, setDraggedPage] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const [pdfSearchOpen, setPdfSearchOpen] = useState(false);
+  const [pdfSearchText, setPdfSearchText] = useState("");
+  const [pdfSearchMatches, setPdfSearchMatches] = useState<PdfSearchMatch[]>([]);
+  const [activeSearchMatch, setActiveSearchMatch] = useState(0);
+  const [searchingPdf, setSearchingPdf] = useState(false);
+  const [pdfSearchError, setPdfSearchError] = useState<string | null>(null);
   const pdfViewerRef = useRef<HTMLDivElement>(null);
-  const thumbnailPanelRef = useRef<HTMLElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null);
+  const searchTaskRef = useRef(0);
+  const handledSearchRequestRef = useRef(pdfSearchRequest);
+  const thumbnailPanelRef = useRef<HTMLDivElement | null>(null);
   const zoomRef = useRef(zoom);
   const onZoomChangeRef = useRef(onZoomChange);
   const zoomFrameRef = useRef<number | null>(null);
@@ -133,6 +173,91 @@ function PdfViewer({
 
   zoomRef.current = zoom;
   onZoomChangeRef.current = onZoomChange;
+
+  useEffect(() => {
+    if (pdfSearchRequest === handledSearchRequestRef.current) return;
+    handledSearchRequestRef.current = pdfSearchRequest;
+    setPdfSearchOpen(true);
+    const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [pdfSearchRequest]);
+
+  useEffect(() => () => {
+    searchTaskRef.current += 1;
+  }, []);
+
+  async function searchPdfText(query: string) {
+    const pdf = pdfDocumentRef.current;
+    const normalizedQuery = query.trim();
+    const searchTask = ++searchTaskRef.current;
+    setPdfSearchMatches([]);
+    setActiveSearchMatch(0);
+    setPdfSearchError(null);
+    if (!pdf || !normalizedQuery) {
+      setSearchingPdf(false);
+      return;
+    }
+
+    setSearchingPdf(true);
+    const normalizedNeedle = normalizedQuery.toLocaleLowerCase();
+    const matches: PdfSearchMatch[] = [];
+    try {
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        if (searchTask !== searchTaskRef.current) return;
+        const page = await pdf.getPage(pageNumber);
+        const content = await page.getTextContent();
+        const pageText = content.items
+          .map((item) => ("str" in item ? item.str : ""))
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        const normalizedText = pageText.toLocaleLowerCase();
+        let offset = 0;
+        let occurrenceCount = 0;
+        let firstMatch = -1;
+        while ((offset = normalizedText.indexOf(normalizedNeedle, offset)) !== -1) {
+          if (firstMatch === -1) firstMatch = offset;
+          occurrenceCount += 1;
+          offset += Math.max(1, normalizedNeedle.length);
+        }
+        if (occurrenceCount > 0) {
+          const snippetStart = Math.max(0, firstMatch - 34);
+          const snippetEnd = Math.min(pageText.length, firstMatch + normalizedQuery.length + 54);
+          matches.push({
+            pageNumber,
+            occurrenceCount,
+            snippet: `${snippetStart > 0 ? "…" : ""}${pageText.slice(snippetStart, snippetEnd)}${snippetEnd < pageText.length ? "…" : ""}`,
+          });
+        }
+      }
+      if (searchTask === searchTaskRef.current) setPdfSearchMatches(matches);
+    } catch (error) {
+      if (searchTask === searchTaskRef.current) {
+        setPdfSearchError(error instanceof Error ? error.message : "No se pudo leer el texto de este PDF.");
+      }
+    } finally {
+      if (searchTask === searchTaskRef.current) setSearchingPdf(false);
+    }
+  }
+
+  function goToSearchMatch(index: number) {
+    if (pdfSearchMatches.length === 0) return;
+    const nextIndex = (index + pdfSearchMatches.length) % pdfSearchMatches.length;
+    setActiveSearchMatch(nextIndex);
+    goToPage(pdfSearchMatches[nextIndex].pageNumber);
+  }
+
+  function closePdfSearch() {
+    searchTaskRef.current += 1;
+    setPdfSearchOpen(false);
+    setPdfSearchText("");
+    setPdfSearchMatches([]);
+    setActiveSearchMatch(0);
+    setSearchingPdf(false);
+    setPdfSearchError(null);
+  }
+
+  const searchPageNumbers = new Set(pdfSearchMatches.map((match) => match.pageNumber));
 
   useEffect(() => {
     if (!pdfViewerRef.current) return;
@@ -216,16 +341,13 @@ function PdfViewer({
     return null;
   }
 
-  function onDocumentLoadSuccess({
-    numPages,
-  }: {
-    numPages: number;
-  }) {
-    setNumPages(numPages);
+  function onDocumentLoadSuccess(pdf: PDFDocumentProxy) {
+    pdfDocumentRef.current = pdf;
+    setNumPages(pdf.numPages);
     setDocumentError(null);
     setPageRenderError(null);
     if (onPageCountChange) {
-      onPageCountChange(numPages);
+      onPageCountChange(pdf.numPages);
     }
   }
 
@@ -420,7 +542,6 @@ function PdfViewer({
 
       {/* PANEL DE MINIATURAS */}
       {showThumbnails && <aside
-        ref={thumbnailPanelRef}
         className={`pdf-thumbnails-panel ${thumbnailsCollapsed ? "collapsed" : ""}`}
         style={{ width: thumbnailsCollapsed ? 40 : thumbnailsWidth, flexBasis: thumbnailsCollapsed ? 40 : thumbnailsWidth }}
       >
@@ -437,14 +558,13 @@ function PdfViewer({
           </button>
         ) : (
           <>
-            <div className="thumbnails-header">
-              <span>Páginas</span>
-              <span className="thumbnails-header-actions">
-                {numPages}
-              </span>
-            </div>
+            <div ref={thumbnailPanelRef} className="pdf-thumbnails-scroll">
+              <div className="thumbnails-header">
+                <span>Páginas</span>
+                <span className="thumbnails-header-actions">{numPages}</span>
+              </div>
 
-        <div className="thumbnails-list">
+              <div className="thumbnails-list">
 
           {Array.from(
             { length: numPages },
@@ -517,7 +637,8 @@ function PdfViewer({
             )
           )}
 
-        </div>
+              </div>
+            </div>
 
             <SidebarResizeHandle label="miniaturas" onResize={onThumbnailsResize} />
             <button
@@ -535,7 +656,55 @@ function PdfViewer({
       </aside>}
 
       {/* DOCUMENTO PRINCIPAL */}
-      <div ref={pdfViewerRef} className="pdf-viewer">
+      <div ref={pdfViewerRef} className={`pdf-viewer ${pdfSearchOpen ? "search-open" : ""}`}>
+
+        {pdfSearchOpen && (
+          <form
+            className="pdf-search-panel"
+            role="search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void searchPdfText(pdfSearchText);
+            }}
+          >
+            <div className="pdf-search-controls">
+              <Search size={16} aria-hidden="true" />
+              <input
+                ref={searchInputRef}
+                value={pdfSearchText}
+                onChange={(event) => setPdfSearchText(event.target.value)}
+                placeholder="Buscar texto en el PDF"
+                aria-label="Buscar texto dentro del PDF"
+              />
+              <button type="submit" aria-label="Buscar" title="Buscar"><Search size={15} /></button>
+              <span className="pdf-search-count">
+                {searchingPdf ? "Buscando…" : pdfSearchError || (pdfSearchText.trim() ? `${pdfSearchMatches.reduce((total, match) => total + match.occurrenceCount, 0)} en ${pdfSearchMatches.length} pág.` : "Ctrl+Espacio")}
+              </span>
+              <button type="button" aria-label="Resultado anterior" title="Resultado anterior" disabled={!pdfSearchMatches.length} onClick={() => goToSearchMatch(activeSearchMatch - 1)}><ChevronUp size={16} /></button>
+              <button type="button" aria-label="Resultado siguiente" title="Resultado siguiente" disabled={!pdfSearchMatches.length} onClick={() => goToSearchMatch(activeSearchMatch + 1)}><ChevronDown size={16} /></button>
+              <button type="button" aria-label="Cerrar búsqueda" title="Cerrar búsqueda" onClick={closePdfSearch}><X size={16} /></button>
+            </div>
+            {(pdfSearchMatches.length > 0 || pdfSearchError || (pdfSearchText.trim() && !searchingPdf)) && (
+              <div className="pdf-search-results" role="listbox" aria-label="Resultados de búsqueda">
+                {pdfSearchError && <p className="pdf-search-empty">{pdfSearchError}</p>}
+                {!pdfSearchError && pdfSearchMatches.length === 0 && <p className="pdf-search-empty">No se encontraron coincidencias de texto.</p>}
+                {pdfSearchMatches.map((match, index) => (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={index === activeSearchMatch}
+                    className={index === activeSearchMatch ? "active" : ""}
+                    key={match.pageNumber}
+                    onClick={() => goToSearchMatch(index)}
+                  >
+                    <span>Página {match.pageNumber} <small>{match.occurrenceCount}</small></span>
+                    <span className="pdf-search-snippet">{match.snippet}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </form>
+        )}
 
         <div className="pdf-info">
           <span>
@@ -607,6 +776,7 @@ function PdfViewer({
                   <Page
                     pageNumber={pageNumber}
                     width={750 * zoom / 100}
+                    customTextRenderer={searchPageNumbers.has(pageNumber) ? ({ str }) => highlightSearchText(str, pdfSearchText) : undefined}
                     onRenderError={onPageRenderError}
                   />
                   {pageAnnotations.flatMap((annotation) =>

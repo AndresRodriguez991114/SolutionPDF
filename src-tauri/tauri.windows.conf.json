@@ -1,0 +1,15 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm run build && cargo build --release --manifest-path src-tauri/pdf-thumbnailer/Cargo.toml"
+  },
+  "bundle": {
+    "resources": {
+      "pdf-thumbnailer/target/release/solutionpdf_thumbnailer.dll": "solutionpdf_thumbnailer.dll"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/nsis-hooks.nsh"
+      }
+    }
+  }
+}

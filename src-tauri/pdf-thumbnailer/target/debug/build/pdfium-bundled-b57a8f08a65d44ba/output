@@ -1,0 +1,8 @@
+cargo:rerun-if-env-changed=PDFIUM_BUNDLE_LIB
+cargo:rerun-if-env-changed=PDFIUM_ALLOW_UNVERIFIED_LIB
+cargo:rerun-if-env-changed=CARGO_FEATURE_BUNDLED
+cargo:rerun-if-env-changed=PDFIUM_BUILD_CACHE_DIR
+cargo:rerun-if-env-changed=DOCS_RS
+cargo:warning=pdfium-bundled[bundled]: cache hit — pdfium.dll for windows/x86_64 (digest verified)
+cargo:rerun-if-changed=C:\Users\Andres Rodriguez\.cargo\pdfium-bundled\8066\windows-x86_64\pdfium.dll
+cargo:rerun-if-changed=D:\SolutionsPdf\SolutionPdf\src-tauri\pdf-thumbnailer\target\debug\build\pdfium-bundled-b57a8f08a65d44ba\out\bundled_pdfium_lib

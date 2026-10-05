@@ -1,0 +1,7 @@
+D:\SolutionsPdf\SolutionPdf\src-tauri\pdf-thumbnailer\target\debug\build\pdfium-bundled-1b8337b63edaeea7\build_script_build-1b8337b63edaeea7.d: C:\Users\Andres\ Rodriguez\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pdfium-bundled-0.2.0+pdfium-8066\build.rs C:\Users\Andres\ Rodriguez\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pdfium-bundled-0.2.0+pdfium-8066\src/platform.rs C:\Users\Andres\ Rodriguez\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pdfium-bundled-0.2.0+pdfium-8066\src/integrity.rs
+
+D:\SolutionsPdf\SolutionPdf\src-tauri\pdf-thumbnailer\target\debug\build\pdfium-bundled-1b8337b63edaeea7\build_script_build-1b8337b63edaeea7.exe: C:\Users\Andres\ Rodriguez\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pdfium-bundled-0.2.0+pdfium-8066\build.rs C:\Users\Andres\ Rodriguez\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pdfium-bundled-0.2.0+pdfium-8066\src/platform.rs C:\Users\Andres\ Rodriguez\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pdfium-bundled-0.2.0+pdfium-8066\src/integrity.rs
+
+C:\Users\Andres\ Rodriguez\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pdfium-bundled-0.2.0+pdfium-8066\build.rs:
+C:\Users\Andres\ Rodriguez\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pdfium-bundled-0.2.0+pdfium-8066\src/platform.rs:
+C:\Users\Andres\ Rodriguez\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pdfium-bundled-0.2.0+pdfium-8066\src/integrity.rs:

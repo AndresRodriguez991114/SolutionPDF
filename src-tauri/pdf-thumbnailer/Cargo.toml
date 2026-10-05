@@ -1,0 +1,11 @@
+[package]
+name = "solutionpdf-thumbnailer"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pdfium-bundled = { version = "0.2.0", features = ["bundled"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }

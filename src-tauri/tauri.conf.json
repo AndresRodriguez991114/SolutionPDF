@@ -39,7 +39,7 @@
     "fileAssociations": [
       {
         "ext": ["pdf"],
-        "name": "Documento PDF",
+        "name": "SolutionsPDF.Pdf",
         "description": "Documento PDF",
         "mimeType": "application/pdf"
       }

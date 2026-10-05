@@ -25,6 +25,7 @@ import brandMark from "./assets/solutionspdf-mark.svg";
 import PdfViewer from "./PDF/PdfViewer";
 import Toolbar from "./components/Toolbar";
 import PagesPanel from "./components/PagesPanel";
+import UserManual from "./components/UserManual";
 import StatusBar from "./components/StatusBar";
 import {
   applyAnnotationsToPdf,
@@ -75,12 +76,43 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
-function readPreferences(): { zoom: number; showThumbnails: boolean } {
+interface AppPreferences {
+  zoom: number;
+  showThumbnails: boolean;
+  documentsPanelCollapsed: boolean;
+  thumbnailsPanelCollapsed: boolean;
+  documentsPanelWidth: number;
+  thumbnailsPanelWidth: number;
+}
+
+const defaultPreferences: AppPreferences = {
+  zoom: 100,
+  showThumbnails: true,
+  documentsPanelCollapsed: false,
+  thumbnailsPanelCollapsed: false,
+  documentsPanelWidth: 258,
+  thumbnailsPanelWidth: 190,
+};
+
+function boundedWidth(value: unknown, fallback: number, minimum: number, maximum: number): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.min(maximum, Math.max(minimum, value))
+    : fallback;
+}
+
+function readPreferences(): AppPreferences {
   try {
     const stored = localStorage.getItem("solutionpdf.preferences");
-    return stored ? JSON.parse(stored) as { zoom: number; showThumbnails: boolean } : { zoom: 100, showThumbnails: true };
+    if (!stored) return defaultPreferences;
+    const parsed = JSON.parse(stored) as Partial<AppPreferences>;
+    return {
+      ...defaultPreferences,
+      ...parsed,
+      documentsPanelWidth: boundedWidth(parsed.documentsPanelWidth, defaultPreferences.documentsPanelWidth, 180, 420),
+      thumbnailsPanelWidth: boundedWidth(parsed.thumbnailsPanelWidth, defaultPreferences.thumbnailsPanelWidth, 140, 340),
+    };
   } catch {
-    return { zoom: 100, showThumbnails: true };
+    return defaultPreferences;
   }
 }
 
@@ -180,6 +212,7 @@ function App() {
   const closeApprovedRef = useRef(false);
   const [menu, setMenu] = useState<AppMenu | null>(null);
   const [dialog, setDialog] = useState<{ title: string; body: string } | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<PdfTool>(null);
   const [textTarget, setTextTarget] = useState<{ pageNumber: number; x: number; y: number; rectangles?: NormalizedRect[]; annotationId?: string; selectedText?: string } | null>(null);
@@ -194,7 +227,14 @@ function App() {
   const [properties, setProperties] = useState<{ title: string; body: string } | null>(null);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [preferences, setPreferences] = useState(readPreferences);
-  const { zoom, showThumbnails } = preferences;
+  const {
+    zoom,
+    showThumbnails,
+    documentsPanelCollapsed,
+    thumbnailsPanelCollapsed,
+    documentsPanelWidth,
+    thumbnailsPanelWidth,
+  } = preferences;
   const [readingMode, setReadingMode] = useState(false);
   const [searchRequest, setSearchRequest] = useState(0);
   const [status, setStatus] = useState("Listo");
@@ -747,11 +787,11 @@ function App() {
       case "zoom-in": updatePreferences({ zoom: Math.min(150, zoom + 10) }); break;
       case "zoom-out": updatePreferences({ zoom: Math.max(40, zoom - 10) }); break;
       case "zoom-reset": updatePreferences({ zoom: 100 }); break;
-      case "fit": updatePreferences({ zoom: Math.max(40, Math.min(100, Math.floor((window.innerWidth - (showThumbnails ? 320 : 100)) / 750 * 100))) }); break;
+      case "fit": updatePreferences({ zoom: Math.max(40, Math.min(100, Math.floor((window.innerWidth - documentsPanelWidth - (showThumbnails ? thumbnailsPanelWidth : 0) - 100) / 750 * 100))) }); break;
       case "rotate-view": runPageAction("rotate-right"); break;
       case "toggle-panel": updatePreferences({ showThumbnails: !showThumbnails }); break;
       case "reading-mode": setReadingMode((value) => !value); break;
-      case "manual": notify("Manual de usuario", "Abre un PDF desde Archivo. Usa el clic derecho o los tres puntos de una miniatura para rotar, reordenar o eliminar páginas. Guarda con Ctrl+S y deshaz con Ctrl+Z."); break;
+      case "manual": setManualOpen(true); break;
       case "about": notify("Acerca de SolutionsPDF", "SolutionsPDF 0.1.2\nGestor local de documentos PDF. Los archivos se procesan en este dispositivo."); break;
       case "updates": void handleCheckUpdates(); break;
       case "properties": void handleFileProperties(); break;
@@ -808,6 +848,7 @@ function App() {
       if (event.key === "Escape") {
         setMenu(null);
         setDialog(null);
+        setManualOpen(false);
         setEditDialogOpen(false);
         setPreferencesOpen(false);
         setProperties(null);
@@ -815,6 +856,21 @@ function App() {
       }
       if (!(event.ctrlKey || event.metaKey)) return;
       const key = event.key.toLowerCase();
+      if (key === "+" || key === "=" || event.code === "NumpadAdd") {
+        event.preventDefault();
+        updatePreferences({ zoom: Math.min(150, zoom + 10) });
+        return;
+      }
+      if (key === "-" || key === "_" || event.code === "NumpadSubtract") {
+        event.preventDefault();
+        updatePreferences({ zoom: Math.max(40, zoom - 10) });
+        return;
+      }
+      if (key === "0" || event.code === "Numpad0") {
+        event.preventDefault();
+        updatePreferences({ zoom: 100 });
+        return;
+      }
       if (key === "o") { event.preventDefault(); void handleOpenPdf(); }
       if (key === "s") { event.preventDefault(); void (event.shiftKey ? handleSaveAs() : handleSave()); }
       if (key === "z") { event.preventDefault(); event.shiftKey ? handleRedo() : handleUndo(); }
@@ -868,7 +924,7 @@ function App() {
             const items: Record<AppMenu, [string, string, string][]> = {
               Archivo: [["Abrir PDF", "open", "Ctrl+O"], ["Guardar", "save", "Ctrl+S"], ["Guardar como...", "save-as", "Ctrl+Shift+S"], ["Unir PDF...", "merge", ""], ["Imprimir", "print", "Ctrl+P"], ["Propiedades del archivo", "properties", ""], ["Cerrar documento", "close", ""], ["Salir", "exit", ""]],
               Editar: [["Deshacer", "undo", "Ctrl+Z"], ["Rehacer", "redo", "Ctrl+Y"], ["Copiar texto", "copy", "Ctrl+C"], ["Seleccionar todo", "select-all", "Ctrl+A"], ["Buscar documentos...", "search", "Ctrl+F"], ["Editar página actual...", "edit-page", ""], ["Preferencias", "preferences", ""]],
-              Ver: [[readingMode ? "Salir de modo lectura" : "Modo de lectura", "reading-mode", ""], ["Ajustar a la ventana", "fit", ""], ["Reducir zoom", "zoom-out", ""], [`Zoom ${zoom}%`, "zoom-reset", ""], ["Aumentar zoom", "zoom-in", ""], ["Rotar página actual", "rotate-view", ""], [showThumbnails ? "Ocultar miniaturas" : "Mostrar miniaturas", "toggle-panel", ""]],
+              Ver: [[readingMode ? "Salir de modo lectura" : "Modo de lectura", "reading-mode", ""], ["Ajustar a la ventana", "fit", ""], ["Reducir zoom", "zoom-out", "Ctrl+-"], [`Zoom ${zoom}%`, "zoom-reset", "Ctrl+0"], ["Aumentar zoom", "zoom-in", "Ctrl++"], ["Rotar página actual", "rotate-view", ""], [showThumbnails ? "Ocultar miniaturas" : "Mostrar miniaturas", "toggle-panel", ""]],
               Ayuda: [["Manual de usuario (offline)", "manual", ""], ["Acerca de SolutionsPDF", "about", ""], ["Verificar actualizaciones", "updates", ""]],
             };
             return (
@@ -923,6 +979,10 @@ function App() {
           recentFiles={recentFiles}
           onSelectFile={loadDocument}
           searchRequest={searchRequest}
+          collapsed={documentsPanelCollapsed}
+          width={documentsPanelWidth}
+          onToggleCollapsed={() => updatePreferences({ documentsPanelCollapsed: !documentsPanelCollapsed })}
+          onResize={(delta) => updatePreferences({ documentsPanelWidth: Math.min(420, Math.max(180, documentsPanelWidth + delta)) })}
         />
 
         <section className="document-area">
@@ -982,7 +1042,12 @@ function App() {
               onPageAction={handlePageAction}
               onMovePage={handleMovePage}
               zoom={zoom}
+              onZoomChange={(nextZoom) => updatePreferences({ zoom: nextZoom })}
               showThumbnails={showThumbnails}
+              thumbnailsCollapsed={thumbnailsPanelCollapsed}
+              thumbnailsWidth={thumbnailsPanelWidth}
+              onToggleThumbnailsCollapsed={() => updatePreferences({ thumbnailsPanelCollapsed: !thumbnailsPanelCollapsed })}
+              onThumbnailsResize={(delta) => updatePreferences({ thumbnailsPanelWidth: Math.min(340, Math.max(140, thumbnailsPanelWidth + delta)) })}
               activeTool={activeTool}
               onPageClick={handlePageClick}
               onTextSelection={handleTextSelection}
@@ -1125,6 +1190,8 @@ function App() {
           </section>
         </div>
       )}
+
+      {manualOpen && <UserManual onClose={() => setManualOpen(false)} />}
 
       {properties && (
         <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setProperties(null); }}>

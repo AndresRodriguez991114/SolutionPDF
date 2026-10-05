@@ -1,5 +1,6 @@
 import {
   ChevronRight,
+  ChevronLeft,
   FileText,
   FolderOpen,
   HardDrive,
@@ -7,6 +8,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useEffect } from "react";
+import SidebarResizeHandle from "./SidebarResizeHandle";
 
 interface PagesPanelProps {
   fileName: string | undefined;
@@ -14,6 +16,10 @@ interface PagesPanelProps {
   recentFiles: string[];
   onSelectFile: (path: string) => void;
   searchRequest: number;
+  collapsed: boolean;
+  width: number;
+  onToggleCollapsed: () => void;
+  onResize: (delta: number) => void;
 }
 
 function PagesPanel({
@@ -22,6 +28,10 @@ function PagesPanel({
   recentFiles,
   onSelectFile,
   searchRequest,
+  collapsed,
+  width,
+  onToggleCollapsed,
+  onResize,
 }: PagesPanelProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -34,23 +44,40 @@ function PagesPanel({
   }, [searchRequest]);
 
   return (
-    <aside className="pages-panel">
+    <aside
+      className={`pages-panel ${collapsed ? "collapsed" : ""}`}
+      style={{ width: collapsed ? 40 : width, flexBasis: collapsed ? 40 : width }}
+    >
+      {collapsed ? (
+        <button
+          type="button"
+          className="sidebar-expand-button"
+          aria-label="Expandir documentos locales"
+          title="Expandir documentos locales"
+          onClick={onToggleCollapsed}
+        >
+          <ChevronRight size={17} />
+        </button>
+      ) : (
+        <>
 
       <div className="panel-heading">
         <span>Documentos locales</span>
 
-        <button
-          className="search-button"
-          aria-label="Buscar documentos"
-          title="Buscar documentos"
-          aria-expanded={searchOpen}
-          onClick={() => {
-            setSearchOpen((open) => !open);
-            setSearchTerm("");
-          }}
-        >
-          <Search size={16} />
-        </button>
+        <div className="panel-heading-actions">
+          <button
+            className="search-button"
+            aria-label="Buscar documentos"
+            title="Buscar documentos"
+            aria-expanded={searchOpen}
+            onClick={() => {
+              setSearchOpen((open) => !open);
+              setSearchTerm("");
+            }}
+          >
+            <Search size={16} />
+          </button>
+        </div>
       </div>
 
       {searchOpen && (
@@ -136,6 +163,19 @@ function PagesPanel({
             Tus documentos permanecen en tu equipo.
           </span>
         </div>
+      )}
+
+          <SidebarResizeHandle label="documentos locales" onResize={onResize} />
+          <button
+            type="button"
+            className="sidebar-mid-toggle"
+            aria-label="Contraer documentos locales"
+            title="Contraer documentos locales"
+            onClick={onToggleCollapsed}
+          >
+            <ChevronLeft size={16} />
+          </button>
+        </>
       )}
 
     </aside>

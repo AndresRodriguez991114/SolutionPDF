@@ -4,12 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  ChevronLeft,
+  ChevronRight,
   RotateCcw,
   RotateCw,
   Trash2,
 } from "lucide-react";
 
 import PdfThumbnail from "./PdfThumbnail";
+import SidebarResizeHandle from "../components/SidebarResizeHandle";
 import type { PageAction } from "./pdfUtils";
 import type { NormalizedRect, PdfAnnotation } from "./pdfUtils";
 import type { PdfTool } from "../components/Toolbar";
@@ -32,7 +35,12 @@ interface PdfViewerProps {
   onPageAction: (action: PageAction, pageNumber: number) => void;
   onMovePage: (fromPageNumber: number, toPageNumber: number) => void;
   zoom: number;
+  onZoomChange: (zoom: number) => void;
   showThumbnails: boolean;
+  thumbnailsCollapsed: boolean;
+  thumbnailsWidth: number;
+  onToggleThumbnailsCollapsed: () => void;
+  onThumbnailsResize: (delta: number) => void;
   activeTool: PdfTool;
   onPageClick: (pageNumber: number, xRatio: number, yRatio: number) => void;
   onTextSelection: (pageNumber: number, rectangles: NormalizedRect[], selectedText: string) => void;
@@ -55,7 +63,12 @@ function PdfViewer({
   onPageAction,
   onMovePage,
   zoom,
+  onZoomChange,
   showThumbnails,
+  thumbnailsCollapsed,
+  thumbnailsWidth,
+  onToggleThumbnailsCollapsed,
+  onThumbnailsResize,
   activeTool,
   onPageClick,
   onTextSelection,
@@ -72,7 +85,11 @@ function PdfViewer({
   const [pageRenderError, setPageRenderError] = useState<string | null>(null);
   const [draggedPage, setDraggedPage] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const pdfViewerRef = useRef<HTMLDivElement>(null);
   const thumbnailPanelRef = useRef<HTMLElement | null>(null);
+  const zoomRef = useRef(zoom);
+  const onZoomChangeRef = useRef(onZoomChange);
+  const zoomFrameRef = useRef<number | null>(null);
   const pointerDragRef = useRef<{
     pageNumber: number;
     pointerId: number;
@@ -113,6 +130,43 @@ function PdfViewer({
     if (!hasUnsavedChanges) return convertFileSrc(sourcePath);
     return file ? { data: new Uint8Array(file) } : null;
   }, [file, hasUnsavedChanges, sourcePath]);
+
+  zoomRef.current = zoom;
+  onZoomChangeRef.current = onZoomChange;
+
+  useEffect(() => {
+    if (!pdfViewerRef.current) return;
+
+    function handleWheel(event: WheelEvent) {
+      const overPdfPage = event.target instanceof Element && event.target.closest(".pdf-page");
+      if (!overPdfPage) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 300 : 1);
+      const nextZoom = Math.round(
+        Math.min(150, Math.max(40, zoomRef.current * Math.exp(-delta * 0.001))) * 10
+      ) / 10;
+      if (nextZoom === zoomRef.current) return;
+
+      zoomRef.current = nextZoom;
+      if (zoomFrameRef.current === null) {
+        zoomFrameRef.current = window.requestAnimationFrame(() => {
+          zoomFrameRef.current = null;
+          onZoomChangeRef.current(zoomRef.current);
+        });
+      }
+    }
+
+    document.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+    return () => {
+      document.removeEventListener("wheel", handleWheel, true);
+      if (zoomFrameRef.current !== null) {
+        window.cancelAnimationFrame(zoomFrameRef.current);
+        zoomFrameRef.current = null;
+      }
+    };
+  }, [file]);
 
   useEffect(() => () => {
     if (autoScrollTimerRef.current !== null) {
@@ -365,12 +419,30 @@ function PdfViewer({
     >
 
       {/* PANEL DE MINIATURAS */}
-      {showThumbnails && <aside ref={thumbnailPanelRef} className="pdf-thumbnails-panel">
+      {showThumbnails && <aside
+        ref={thumbnailPanelRef}
+        className={`pdf-thumbnails-panel ${thumbnailsCollapsed ? "collapsed" : ""}`}
+        style={{ width: thumbnailsCollapsed ? 40 : thumbnailsWidth, flexBasis: thumbnailsCollapsed ? 40 : thumbnailsWidth }}
+      >
 
-        <div className="thumbnails-header">
-          <span>Páginas</span>
-          <span>{numPages}</span>
-        </div>
+        {thumbnailsCollapsed ? (
+          <button
+            type="button"
+            className="sidebar-expand-button"
+            aria-label="Expandir miniaturas"
+            title="Expandir miniaturas"
+            onClick={onToggleThumbnailsCollapsed}
+          >
+            <ChevronRight size={17} />
+          </button>
+        ) : (
+          <>
+            <div className="thumbnails-header">
+              <span>Páginas</span>
+              <span className="thumbnails-header-actions">
+                {numPages}
+              </span>
+            </div>
 
         <div className="thumbnails-list">
 
@@ -447,10 +519,23 @@ function PdfViewer({
 
         </div>
 
+            <SidebarResizeHandle label="miniaturas" onResize={onThumbnailsResize} />
+            <button
+              type="button"
+              className="sidebar-mid-toggle"
+              aria-label="Contraer miniaturas"
+              title="Contraer miniaturas"
+              onClick={onToggleThumbnailsCollapsed}
+            >
+              <ChevronLeft size={16} />
+            </button>
+          </>
+        )}
+
       </aside>}
 
       {/* DOCUMENTO PRINCIPAL */}
-      <div className="pdf-viewer">
+      <div ref={pdfViewerRef} className="pdf-viewer">
 
         <div className="pdf-info">
           <span>

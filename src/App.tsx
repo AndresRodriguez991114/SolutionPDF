@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -750,6 +751,14 @@ function App() {
     }
   }
 
+  async function handleAbout() {
+    const version = await getVersion().catch(() => null);
+    notify(
+      "Acerca de SolutionsPDF",
+      `${version ? `SolutionsPDF ${version}` : "Versión no disponible"}\nGestor local de documentos PDF. Los archivos se procesan en este dispositivo.`,
+    );
+  }
+
   function runPageAction(action: PageAction) {
     void handlePageAction(action, currentPage);
     setMenu(null);
@@ -792,7 +801,7 @@ function App() {
       case "toggle-panel": updatePreferences({ showThumbnails: !showThumbnails }); break;
       case "reading-mode": setReadingMode((value) => !value); break;
       case "manual": setManualOpen(true); break;
-      case "about": notify("Acerca de SolutionsPDF", "SolutionsPDF 0.1.2\nGestor local de documentos PDF. Los archivos se procesan en este dispositivo."); break;
+      case "about": void handleAbout(); break;
       case "updates": void handleCheckUpdates(); break;
       case "properties": void handleFileProperties(); break;
       case "edit-page": setEditDialogOpen(true); break;

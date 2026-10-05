@@ -23,6 +23,12 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Set package version from tag
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          npm version $version --no-git-tag-version --ignore-scripts
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

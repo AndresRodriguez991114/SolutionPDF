@@ -62,6 +62,12 @@ interface PdfPasswordDialog {
   error: string | null;
 }
 
+interface PdfProtectionDialog {
+  password: string;
+  confirmation: string;
+  error: string | null;
+}
+
 interface MergeProgress {
   phase: "loading" | "merging";
   current: number;
@@ -229,6 +235,9 @@ function App() {
   const [dialog, setDialog] = useState<{ title: string; body: string } | null>(null);
   const [pdfPasswordDialog, setPdfPasswordDialog] = useState<PdfPasswordDialog | null>(null);
   const pdfPasswordResolverRef = useRef<((password: string | null) => void) | null>(null);
+  const [pdfProtectionDialog, setPdfProtectionDialog] = useState<PdfProtectionDialog | null>(null);
+  const [protectionInProgress, setProtectionInProgress] = useState(false);
+  const protectInProgressRef = useRef(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<PdfTool>(null);
@@ -479,6 +488,73 @@ function App() {
     } catch (error) {
       notify("No se pudo guardar el PDF", `${errorMessage(error)}\nPrueba con “Guardar como...” en otra ubicación.`);
       return false;
+    }
+  }
+
+  async function handleProtectPdf(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!pdfProtectionDialog || protectInProgressRef.current) return;
+
+    const { password, confirmation } = pdfProtectionDialog;
+    const passwordBytes = new TextEncoder().encode(password).length;
+    if (Array.from(password).length < 8) {
+      setPdfProtectionDialog({ ...pdfProtectionDialog, error: "La contraseña debe tener al menos 8 caracteres." });
+      return;
+    }
+    if (passwordBytes > 127) {
+      setPdfProtectionDialog({ ...pdfProtectionDialog, error: "La contraseña no puede superar 127 bytes UTF-8." });
+      return;
+    }
+    if (password !== confirmation) {
+      setPdfProtectionDialog({ ...pdfProtectionDialog, error: "Las contraseñas no coinciden." });
+      return;
+    }
+
+    const bytes = pdfBytesRef.current;
+    if (!bytes) return;
+
+    protectInProgressRef.current = true;
+    setProtectionInProgress(true);
+    try {
+      const editableBytes = await applyAnnotationsToPdf(bytes, annotations);
+      const protectedBytes = new Uint8Array(await invoke<number[]>("protect_pdf", {
+        bytes: Array.from(editableBytes),
+        password,
+      }));
+      const verifiedBytes = new Uint8Array(await invoke<number[]>("unlock_pdf", {
+        bytes: Array.from(protectedBytes),
+        password,
+      }));
+      await PDFDocument.load(verifiedBytes);
+
+      const path = await saveDialog({
+        defaultPath: fileName?.replace(/\.pdf$/i, "-protegido.pdf") || "documento-protegido.pdf",
+        filters: [{ name: "Documento PDF", extensions: ["pdf"] }],
+      });
+      if (!path) {
+        setPdfProtectionDialog(null);
+        return;
+      }
+      if (pdfFile && path.replace(/[\\/]+/g, "\\").toLowerCase() === pdfFile.replace(/[\\/]+/g, "\\").toLowerCase()) {
+        setPdfProtectionDialog({
+          ...pdfProtectionDialog,
+          error: "Elige otro nombre o ubicación para conservar intacto el PDF original.",
+        });
+        return;
+      }
+
+      await invoke("save_pdf", { path, bytes: Array.from(protectedBytes) });
+      rememberFile(path);
+      setPdfProtectionDialog(null);
+      setStatus("PDF protegido y guardado");
+      notify("PDF protegido", `Se guardó una copia cifrada con AES-256 en:\n${path}\n\nPara abrirla se necesitará la contraseña. El documento original no se modificó.`);
+    } catch (error) {
+      setPdfProtectionDialog((current) => current
+        ? { ...current, error: errorMessage(error) }
+        : null);
+    } finally {
+      protectInProgressRef.current = false;
+      setProtectionInProgress(false);
     }
   }
 
@@ -931,6 +1007,7 @@ function App() {
       case "updates": void handleCheckUpdates(); break;
       case "properties": void handleFileProperties(); break;
       case "edit-page": setEditDialogOpen(true); break;
+      case "protect": setPdfProtectionDialog({ password: "", confirmation: "", error: null }); break;
       case "merge": void handleMergePdf(); break;
       case "optimize": void handleOptimizePdf(); break;
     }
@@ -1062,7 +1139,7 @@ function App() {
         <nav className="menu" ref={menuRef}>
           {(["Archivo", "Editar", "Ver", "Ayuda"] as AppMenu[]).map((item) => {
             const items: Record<AppMenu, [string, string, string][]> = {
-              Archivo: [["Abrir PDF", "open", "Ctrl+O"], ["Guardar", "save", "Ctrl+S"], ["Guardar como...", "save-as", "Ctrl+Shift+S"], ["Unir PDF...", "merge", ""], ["Imprimir", "print", "Ctrl+P"], ["Propiedades del archivo", "properties", ""], ["Cerrar documento", "close", ""], ["Salir", "exit", ""]],
+              Archivo: [["Abrir PDF", "open", "Ctrl+O"], ["Guardar", "save", "Ctrl+S"], ["Guardar como...", "save-as", "Ctrl+Shift+S"], ["Unir PDF...", "merge", ""], ["Proteger PDF...", "protect", ""], ["Imprimir", "print", "Ctrl+P"], ["Propiedades del archivo", "properties", ""], ["Cerrar documento", "close", ""], ["Salir", "exit", ""]],
               Editar: [["Deshacer", "undo", "Ctrl+Z"], ["Rehacer", "redo", "Ctrl+Y"], ["Copiar texto", "copy", "Ctrl+C"], ["Seleccionar todo", "select-all", "Ctrl+A"], ["Buscar documentos...", "search", "Ctrl+F"], ["Buscar dentro del PDF...", "search-pdf", "Ctrl+Espacio"], ["Editar página actual...", "edit-page", ""], ["Preferencias", "preferences", ""]],
               Ver: [[readingMode ? "Salir de modo lectura" : "Modo de lectura", "reading-mode", ""], ["Ajustar a la ventana", "fit", ""], ["Reducir zoom", "zoom-out", "Ctrl+-"], [`Zoom ${zoom}%`, "zoom-reset", "Ctrl+0"], ["Aumentar zoom", "zoom-in", "Ctrl++"], ["Rotar página actual", "rotate-view", ""], [showThumbnails ? "Ocultar miniaturas" : "Mostrar miniaturas", "toggle-panel", ""]],
               Ayuda: [["Manual de usuario (offline)", "manual", ""], ["Acerca de SolutionsPDF", "about", ""], ["Verificar actualizaciones", "updates", ""]],
@@ -1072,8 +1149,8 @@ function App() {
                 <button aria-haspopup="menu" aria-expanded={menu === item} onClick={() => setMenu((current) => current === item ? null : item)}>{item}</button>
                 {menu === item && <div className="menu-dropdown" role="menu" aria-label={item}>
                   {items[item].map(([label, action, shortcut]) => {
-                    const needsDocument = ["save", "save-as", "close", "print", "properties", "edit-page", "rotate-view", "search-pdf"].includes(action);
-                    const disabled = (needsDocument && !pdfFile) || (action === "undo" && !canUndo) || (action === "redo" && !canRedo) || (action === "merge" && mergeProgress !== null);
+                    const needsDocument = ["save", "save-as", "close", "print", "properties", "edit-page", "rotate-view", "search-pdf", "protect"].includes(action);
+                    const disabled = (needsDocument && !pdfFile) || (action === "undo" && !canUndo) || (action === "redo" && !canRedo) || (action === "merge" && mergeProgress !== null) || (action === "protect" && protectionInProgress);
                     return <button key={action} role="menuitem" disabled={disabled} onClick={() => handleMenuAction(action)}>
                       <span>{label}</span>{shortcut && <kbd>{shortcut}</kbd>}
                     </button>;
@@ -1371,6 +1448,55 @@ function App() {
             <div className="dialog-footer">
               <button type="button" onClick={cancelPdfPasswordRequest}>Cancelar</button>
               <button className="dialog-primary" type="submit">Desbloquear</button>
+            </div>
+          </form>
+        </div>
+      )}
+      {pdfProtectionDialog && (
+        <div className="dialog-backdrop" onMouseDown={(event) => {
+          if (!protectionInProgress && event.target === event.currentTarget) setPdfProtectionDialog(null);
+        }}>
+          <form className="app-dialog" role="dialog" aria-modal="true" aria-labelledby="pdf-protection-title" onSubmit={handleProtectPdf}>
+            <h2 id="pdf-protection-title">Proteger PDF con contraseña</h2>
+            <p>
+              La contraseña será necesaria para abrir el archivo. Al desbloquearlo, se permite imprimir, editar y copiar.
+              Se guardará una copia protegida con cifrado AES-256; el original no se modificará.
+            </p>
+            <label className="signature-label" htmlFor="pdf-protection-password">Nueva contraseña</label>
+            <input
+              id="pdf-protection-password"
+              className="password-input"
+              type="password"
+              autoComplete="new-password"
+              autoFocus
+              minLength={8}
+              maxLength={127}
+              required
+              disabled={protectionInProgress}
+              value={pdfProtectionDialog.password}
+              onChange={(event) => setPdfProtectionDialog({ ...pdfProtectionDialog, password: event.target.value, error: null })}
+            />
+            <label className="signature-label password-confirm-label" htmlFor="pdf-protection-confirmation">Confirmar contraseña</label>
+            <input
+              id="pdf-protection-confirmation"
+              className="password-input"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              maxLength={127}
+              required
+              disabled={protectionInProgress}
+              value={pdfProtectionDialog.confirmation}
+              onChange={(event) => setPdfProtectionDialog({ ...pdfProtectionDialog, confirmation: event.target.value, error: null })}
+            />
+            {pdfProtectionDialog.error && <p className="password-error" role="alert">{pdfProtectionDialog.error}</p>}
+            <div className="dialog-footer">
+              <span>{protectionInProgress ? "Cifrando PDF…" : "Mínimo 8 caracteres"}</span>
+              <button type="button" disabled={protectionInProgress} onClick={() => setPdfProtectionDialog(null)}>Cancelar</button>
+              <button className="dialog-primary" type="submit" disabled={protectionInProgress}>
+                {protectionInProgress && <LoaderCircle className="merge-progress-spinner" size={14} aria-hidden="true" />}
+                {protectionInProgress ? "Protegiendo…" : "Proteger y guardar"}
+              </button>
             </div>
           </form>
         </div>

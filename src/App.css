@@ -436,6 +436,7 @@ button { font: inherit; }
   outline-color: #b8493c;
 }
 .password-error { margin: 9px 0 0 !important; color: #a33f35 !important; }
+.password-confirm-label { margin-top: 14px; }
 .edit-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .edit-actions button, .dialog-footer button {
   display: inline-flex;

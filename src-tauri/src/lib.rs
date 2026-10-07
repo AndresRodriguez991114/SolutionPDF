@@ -1,10 +1,15 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter};
+use lopdf::{Document as LopdfDocument, EncryptionState, EncryptionVersion, Permissions};
 use pdfium_bundled::pdfium_render::prelude::{
     PdfPageObjectCommon, PdfPageObjectsCommon, PdfPoints,
 };
+use rand::RngExt as _;
 use serde::Deserialize;
 use std::{
+    collections::BTreeMap,
     path::Path,
+    sync::Arc,
     sync::{Mutex, OnceLock},
 };
 use tauri::{Emitter, Manager, State};
@@ -64,6 +69,46 @@ fn unlock_pdf(bytes: Vec<u8>, password: String) -> Result<Vec<u8>, String> {
         .copy_pages_from_document(&source, &format!("1-{page_count}"), 0)
         .map_err(|error| error.to_string())?;
     unlocked.save_to_bytes().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn protect_pdf(bytes: Vec<u8>, password: String) -> Result<Vec<u8>, String> {
+    if password.chars().count() < 8 || password.len() > 127 {
+        return Err(
+            "La contraseña debe tener al menos 8 caracteres y no superar 127 bytes UTF-8.".into(),
+        );
+    }
+
+    let mut document = LopdfDocument::load_mem(&bytes)
+        .map_err(|error| format!("No se pudo preparar el PDF: {error}"))?;
+    if document.is_encrypted() {
+        return Err("El PDF debe estar desbloqueado antes de protegerlo.".into());
+    }
+
+    let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes256CryptFilter);
+    let mut file_encryption_key = [0u8; 32];
+    rand::rng().fill(&mut file_encryption_key);
+    let encryption = EncryptionState::try_from(EncryptionVersion::V5 {
+        encrypt_metadata: true,
+        crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+        file_encryption_key: &file_encryption_key,
+        stream_filter: b"StdCF".to_vec(),
+        string_filter: b"StdCF".to_vec(),
+        owner_password: &password,
+        user_password: &password,
+        permissions: Permissions::all(),
+    })
+    .map_err(|error| format!("No se pudo configurar el cifrado del PDF: {error}"))?;
+
+    document
+        .encrypt(&encryption)
+        .map_err(|error| format!("No se pudo proteger el PDF: {error}"))?;
+
+    let mut protected = Vec::new();
+    document
+        .save_to(&mut protected)
+        .map_err(|error| format!("No se pudo guardar el PDF protegido: {error}"))?;
+    Ok(protected)
 }
 
 #[derive(Deserialize)]
@@ -387,6 +432,7 @@ pub fn run() {
             greet,
             save_pdf,
             unlock_pdf,
+            protect_pdf,
             replace_pdf_text,
             take_pending_pdf_paths
         ])
@@ -397,8 +443,8 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        left_shift_to_fit_page, replace_pdf_text, shared_pdfium, shift_following_text_on_same_line,
-        unlock_pdf, SelectionRect,
+        left_shift_to_fit_page, protect_pdf, replace_pdf_text, shared_pdfium,
+        shift_following_text_on_same_line, unlock_pdf, SelectionRect,
     };
     use pdfium_bundled::pdfium_render::prelude::PdfPageObjectsCommon;
 
@@ -453,6 +499,24 @@ mod tests {
             .load_pdf_from_byte_vec(bytes, None)
             .unwrap();
 
+        assert_eq!(document.pages().len(), 1);
+    }
+
+    #[test]
+    fn protects_pdf_with_a_password_and_allows_full_access_after_unlocking() {
+        let password = "test-password";
+        let protected = protect_pdf(minimal_text_pdf(), password.into()).unwrap();
+        let pdfium = shared_pdfium().unwrap();
+
+        assert!(pdfium
+            .load_pdf_from_byte_vec(protected.clone(), None)
+            .is_err());
+        assert!(pdfium
+            .load_pdf_from_byte_vec(protected.clone(), Some("wrong-password"))
+            .is_err());
+
+        let unlocked = unlock_pdf(protected, password.into()).unwrap();
+        let document = pdfium.load_pdf_from_byte_vec(unlocked, None).unwrap();
         assert_eq!(document.pages().len(), 1);
     }
 

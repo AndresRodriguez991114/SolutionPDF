@@ -37,6 +37,7 @@ const sections: ManualSection[] = [
     topics: [
       { title: "Documentos locales", body: "El panel izquierdo muestra archivos abiertos recientemente. Selecciona uno para abrirlo y usa la lupa para filtrar la lista. Se guardan rutas locales, no se suben los PDF a la nube." },
       { title: "Unir PDF", body: "Pulsa Unir PDF y selecciona los documentos que quieras combinar. Si hay un PDF abierto, también se incluye. Puedes ingresar la contraseña de los archivos protegidos. La copia unida queda sin contraseña; los originales no cambian. La app genera un archivo nuevo y te permite elegir dónde guardarlo." },
+      { title: "Proteger con contraseña", body: "Abre un PDF y elige Archivo > Proteger PDF. Define y confirma una contraseña de al menos 8 caracteres. Se guardará una copia cifrada con AES-256 y el original permanecerá intacto. La contraseña será necesaria para abrir la copia; una vez abierta, se permite imprimir, editar y copiar. Guarda la contraseña en un lugar seguro: la aplicación no la conserva ni puede recuperarla." },
       { title: "Optimizar", body: "Pulsa Optimizar PDF para guardar una copia con una estructura interna más compacta. Si el resultado no es más pequeño, no se crea una copia mayor. Las imágenes no se recomprimen." },
       { title: "Imprimir y propiedades", body: "Pulsa Imprimir o usa Ctrl+P para abrir las opciones de impresión. En Archivo > Propiedades del archivo puedes consultar información del PDF abierto." },
     ],

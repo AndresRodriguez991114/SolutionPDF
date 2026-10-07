@@ -19,6 +19,7 @@ interface ToolbarProps {
   onToolChange: (tool: PdfTool) => void;
   activeTool: PdfTool;
   onMergePdf: () => void;
+  mergeInProgress: boolean;
   onOptimizePdf: () => void;
   onPrint: () => void;
   onCheckUpdates: () => void;
@@ -32,6 +33,7 @@ function Toolbar({
   onToolChange,
   activeTool,
   onMergePdf,
+  mergeInProgress,
   onOptimizePdf,
   onPrint,
   onCheckUpdates,
@@ -90,6 +92,7 @@ function Toolbar({
       <button
         className="tool-button"
         onClick={onMergePdf}
+        disabled={mergeInProgress}
         title="Unir este PDF con otros documentos"
       >
         <Files size={23} strokeWidth={1.8} />

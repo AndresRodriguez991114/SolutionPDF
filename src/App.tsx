@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
@@ -17,6 +17,7 @@ import {
   RotateCw,
   Trash2,
   WifiOff,
+  LoaderCircle,
 } from "lucide-react";
 import { PDFDocument } from "pdf-lib";
 
@@ -54,6 +55,19 @@ interface EditablePdfSnapshot {
 }
 
 type AppMenu = "Archivo" | "Editar" | "Ver" | "Ayuda";
+
+interface PdfPasswordDialog {
+  fileName: string;
+  password: string;
+  error: string | null;
+}
+
+interface MergeProgress {
+  phase: "loading" | "merging";
+  current: number;
+  total: number;
+  fileName?: string;
+}
 
 function readRecentFiles(): string[] {
   try {
@@ -213,6 +227,8 @@ function App() {
   const closeApprovedRef = useRef(false);
   const [menu, setMenu] = useState<AppMenu | null>(null);
   const [dialog, setDialog] = useState<{ title: string; body: string } | null>(null);
+  const [pdfPasswordDialog, setPdfPasswordDialog] = useState<PdfPasswordDialog | null>(null);
+  const pdfPasswordResolverRef = useRef<((password: string | null) => void) | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<PdfTool>(null);
@@ -240,6 +256,9 @@ function App() {
   const [searchRequest, setSearchRequest] = useState(0);
   const [pdfSearchRequest, setPdfSearchRequest] = useState(0);
   const [status, setStatus] = useState("Listo");
+  const [documentUnlocked, setDocumentUnlocked] = useState(false);
+  const [mergeProgress, setMergeProgress] = useState<MergeProgress | null>(null);
+  const mergeInProgressRef = useRef(false);
 
   const fileName = pdfFile?.split(/[\\/]/).pop();
 
@@ -311,26 +330,82 @@ function App() {
     return new Uint8Array(await response.arrayBuffer());
   }
 
+  function requestPdfPassword(name: string, error: string | null = null): Promise<string | null> {
+    return new Promise((resolve) => {
+      pdfPasswordResolverRef.current = resolve;
+      setPdfPasswordDialog({ fileName: name, password: "", error });
+    });
+  }
+
+  async function preparePdfForEditing(
+    bytes: Uint8Array,
+    name: string
+  ): Promise<{ bytes: Uint8Array; wasUnlocked: boolean } | null> {
+    try {
+      await PDFDocument.load(bytes);
+      return { bytes, wasUnlocked: false };
+    } catch (error) {
+      if (!errorMessage(error).toLowerCase().includes("encrypt")) throw error;
+    }
+
+    let passwordError: string | null = null;
+    while (true) {
+      const password = await requestPdfPassword(name, passwordError);
+      if (password === null) return null;
+      try {
+        const unlocked = new Uint8Array(await invoke<number[]>("unlock_pdf", {
+          bytes: Array.from(bytes),
+          password,
+        }));
+        await PDFDocument.load(unlocked);
+        return { bytes: unlocked, wasUnlocked: true };
+      } catch (error) {
+        passwordError = `No se pudo desbloquear el PDF. ${errorMessage(error)}`;
+      }
+    }
+  }
+
+  function cancelPdfPasswordRequest() {
+    const resolve = pdfPasswordResolverRef.current;
+    pdfPasswordResolverRef.current = null;
+    setPdfPasswordDialog(null);
+    resolve?.(null);
+  }
+
+  function submitPdfPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const resolve = pdfPasswordResolverRef.current;
+    if (!resolve || !pdfPasswordDialog) return;
+    pdfPasswordResolverRef.current = null;
+    setPdfPasswordDialog(null);
+    resolve(pdfPasswordDialog.password);
+  }
+
   async function loadDocument(path: string) {
     if (dirty && !await confirm("Hay cambios sin guardar. ¿Quieres descartarlos y abrir otro documento?")) return;
     try {
       const diskBytes = await readPdf(path);
-      let bytes = diskBytes;
+      const name = path.split(/[\\/]/).pop() || path;
+      const prepared = await preparePdfForEditing(diskBytes, name);
+      if (!prepared) return;
+      let bytes = prepared.bytes;
       let restoredAnnotations: PdfAnnotation[] = [];
-      try {
-        const snapshot = await readEditableSnapshot(path);
-        if (snapshot && snapshot.outputHash === await hashPdfBytes(diskBytes)) {
-          bytes = new Uint8Array(snapshot.baseBytes);
-          restoredAnnotations = snapshot.annotations;
-        } else if (snapshot) {
-          await writeEditableSnapshot(null, path);
+      if (!prepared.wasUnlocked) {
+        try {
+          const snapshot = await readEditableSnapshot(path);
+          if (snapshot && snapshot.outputHash === await hashPdfBytes(diskBytes)) {
+            bytes = new Uint8Array(snapshot.baseBytes);
+            restoredAnnotations = snapshot.annotations;
+          } else if (snapshot) {
+            await writeEditableSnapshot(null, path);
+          }
+        } catch (error) {
+          console.warn("SolutionsPDF: no se pudo restaurar el estado editable", error);
         }
-      } catch (error) {
-        console.warn("SolutionsPDF: no se pudo restaurar el estado editable", error);
       }
-      await PDFDocument.load(bytes);
       setPdfFile(path);
       setDocumentBytes(bytes);
+      setDocumentUnlocked(prepared.wasUnlocked);
       setCurrentPage(1);
       setPageCount(0);
       resetHistory();
@@ -367,12 +442,15 @@ function App() {
 
   async function handleSaveAs(bytes = pdfBytesRef.current, suggestedName = fileName || "documento.pdf"): Promise<boolean> {
     if (!bytes) return false;
+    if (bytes === pdfBytesRef.current && documentUnlocked
+      && !await confirm("Esta copia se guardará sin contraseña. El archivo protegido original no se modificará. ¿Continuar?")) return false;
     try {
       const output = bytes === pdfBytesRef.current ? await applyAnnotationsToPdf(bytes, annotations) : bytes;
       const path = await saveCopy(output, suggestedName);
       if (path) {
         if (bytes === pdfBytesRef.current) await persistEditableSnapshot(path, bytes, annotations, output);
         setPdfFile(path);
+        setDocumentUnlocked(false);
         setDirty(false);
         setStatus("Guardado");
         return true;
@@ -388,10 +466,13 @@ function App() {
     const bytes = pdfBytesRef.current;
     if (!bytes) return false;
     if (!pdfFile) return handleSaveAs();
+    if (documentUnlocked
+      && !await confirm("Al guardar se reemplazará el PDF protegido por una copia sin contraseña. ¿Continuar?")) return false;
     try {
       const output = await applyAnnotationsToPdf(bytes, annotations);
       await invoke("save_pdf", { path: pdfFile, bytes: Array.from(output) });
       await persistEditableSnapshot(pdfFile, bytes, annotations, output);
+      setDocumentUnlocked(false);
       setDirty(false);
       setStatus("Guardado");
       return true;
@@ -402,23 +483,62 @@ function App() {
   }
 
   async function handleMergePdf() {
+    if (mergeInProgressRef.current) return;
+    mergeInProgressRef.current = true;
     try {
       const selected = await open({ multiple: true, filters: [{ name: "Documentos PDF", extensions: ["pdf"] }] });
       if (!selected || typeof selected === "string") return;
       const paths = selected.filter((path) => path !== pdfFile);
-      const documents: Uint8Array[] = [];
-      if (pdfBytesRef.current) documents.push(await applyAnnotationsToPdf(pdfBytesRef.current, annotations));
-      for (const path of paths) documents.push(await readPdf(path));
-      if (documents.length < 2) {
+      const currentBytes = pdfBytesRef.current;
+      const total = paths.length + (currentBytes ? 1 : 0);
+      if (total < 2) {
         notify("Faltan documentos", "Selecciona al menos dos PDF para unirlos.");
         return;
       }
 
-      const merged = await mergePdfs(documents);
+      const documents: { bytes: Uint8Array; name: string }[] = [];
+      let containsUnlockedPdf = documentUnlocked;
+      setMergeProgress({ phase: "loading", current: 0, total });
+      if (currentBytes) {
+        const currentFileName = fileName || "documento abierto";
+        setMergeProgress({ phase: "loading", current: 0, total, fileName: currentFileName });
+        try {
+          documents.push({
+            bytes: await applyAnnotationsToPdf(currentBytes, annotations),
+            name: currentFileName,
+          });
+        } catch (error) {
+          throw new Error(`No se pudo preparar "${currentFileName}": ${errorMessage(error)}`);
+        }
+        setMergeProgress({ phase: "loading", current: documents.length, total });
+      }
+      for (const path of paths) {
+        const name = path.split(/[\\/]/).pop() || path;
+        setMergeProgress({ phase: "loading", current: documents.length, total, fileName: name });
+        try {
+          const diskBytes = await readPdf(path);
+          const prepared = await preparePdfForEditing(diskBytes, name);
+          if (!prepared) return;
+          containsUnlockedPdf ||= prepared.wasUnlocked;
+          documents.push({ bytes: prepared.bytes, name });
+        } catch (error) {
+          const message = errorMessage(error);
+          throw new Error(`No se pudo leer "${name}": ${message}`);
+        }
+        setMergeProgress({ phase: "loading", current: documents.length, total });
+      }
+
+      setMergeProgress({ phase: "merging", current: 0, total });
+      const merged = await mergePdfs(documents, (current, documentTotal) => {
+        setMergeProgress({ phase: "merging", current, total: documentTotal });
+      });
+      if (containsUnlockedPdf
+        && !await confirm("El PDF unido se guardará sin contraseña. Los archivos originales protegidos no se modificarán. ¿Continuar?")) return;
       const path = await saveCopy(merged, "documentos-unidos.pdf");
       if (path) {
         setPdfFile(path);
         setDocumentBytes(merged);
+        setDocumentUnlocked(false);
         setPageCount(0);
         setCurrentPage(1);
         resetHistory();
@@ -426,6 +546,9 @@ function App() {
       }
     } catch (error) {
       notify("No se pudieron unir los PDF", errorMessage(error));
+    } finally {
+      setMergeProgress(null);
+      mergeInProgressRef.current = false;
     }
   }
 
@@ -681,6 +804,7 @@ function App() {
     if (dirty && !await confirm("Hay cambios sin guardar. ¿Cerrar el documento y descartarlos?")) return;
     setPdfFile(null);
     setDocumentBytes(null);
+    setDocumentUnlocked(false);
     setPageCount(0);
     setCurrentPage(1);
     resetHistory();
@@ -949,7 +1073,7 @@ function App() {
                 {menu === item && <div className="menu-dropdown" role="menu" aria-label={item}>
                   {items[item].map(([label, action, shortcut]) => {
                     const needsDocument = ["save", "save-as", "close", "print", "properties", "edit-page", "rotate-view", "search-pdf"].includes(action);
-                    const disabled = (needsDocument && !pdfFile) || (action === "undo" && !canUndo) || (action === "redo" && !canRedo);
+                    const disabled = (needsDocument && !pdfFile) || (action === "undo" && !canUndo) || (action === "redo" && !canRedo) || (action === "merge" && mergeProgress !== null);
                     return <button key={action} role="menuitem" disabled={disabled} onClick={() => handleMenuAction(action)}>
                       <span>{label}</span>{shortcut && <kbd>{shortcut}</kbd>}
                     </button>;
@@ -980,6 +1104,7 @@ function App() {
         }}
         activeTool={activeTool}
         onMergePdf={handleMergePdf}
+        mergeInProgress={mergeProgress !== null}
         onOptimizePdf={handleOptimizePdf}
         onPrint={handlePrint}
         onCheckUpdates={handleCheckUpdates}
@@ -1051,7 +1176,7 @@ function App() {
               key={documentRevision}
               file={pdfBytes}
               sourcePath={pdfFile}
-              hasUnsavedChanges={dirty || annotations.length > 0}
+              hasUnsavedChanges={dirty || annotations.length > 0 || documentUnlocked}
               currentPage={currentPage}
               onCurrentPageChange={setCurrentPage}
               onPageCountChange={setPageCount}
@@ -1085,6 +1210,36 @@ function App() {
 
       {/* BARRA INFERIOR */}
       <StatusBar fileName={fileName} status={dirty ? "Cambios sin guardar" : status} />
+
+      {mergeProgress && (
+        <aside className="merge-progress" role="status" aria-live="polite">
+          <div className="merge-progress-heading">
+            <LoaderCircle className="merge-progress-spinner" size={17} aria-hidden="true" />
+            <strong>{mergeProgress.phase === "loading" ? "Preparando PDF" : "Uniendo PDF"}</strong>
+          </div>
+          <p>
+            {mergeProgress.phase === "loading"
+              ? mergeProgress.fileName
+                ? `Leyendo ${mergeProgress.current + 1} de ${mergeProgress.total}: ${mergeProgress.fileName}`
+                  : mergeProgress.current > 0
+                    ? `PDF leídos ${mergeProgress.current} de ${mergeProgress.total}`
+                    : `Preparando ${mergeProgress.total} documentos...`
+              : mergeProgress.current > 0
+                ? `Combinando ${mergeProgress.current} de ${mergeProgress.total} documentos`
+                : `Iniciando combinación de ${mergeProgress.total} documentos...`}
+          </p>
+          <div
+            className="merge-progress-track"
+            role="progressbar"
+            aria-label={mergeProgress.phase === "loading" ? "PDF leídos" : "PDF combinados"}
+            aria-valuemin={0}
+            aria-valuemax={mergeProgress.total}
+            aria-valuenow={mergeProgress.current}
+          >
+            <span style={{ width: `${(mergeProgress.current / mergeProgress.total) * 100}%` }} />
+          </div>
+        </aside>
+      )}
 
       {editDialogOpen && (
         <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditDialogOpen(false); }}>
@@ -1190,6 +1345,34 @@ function App() {
               <button className="dialog-primary" onClick={() => void handleSave().then(async (saved) => { if (saved) await finishWindowClose(); })}>Guardar</button>
             </div>
           </section>
+        </div>
+      )}
+      {pdfPasswordDialog && (
+        <div className="dialog-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) cancelPdfPasswordRequest();
+        }}>
+          <form className="app-dialog" role="dialog" aria-modal="true" aria-labelledby="pdf-password-title" onSubmit={submitPdfPassword}>
+            <h2 id="pdf-password-title">PDF protegido con contraseña</h2>
+            <p>
+              Ingresa la contraseña de “{pdfPasswordDialog.fileName}”. Se usará solo en este dispositivo y no se guardará.
+              Al guardar una copia o unir documentos, el resultado quedará sin contraseña; el original no se modifica salvo que confirmes sobrescribirlo.
+            </p>
+            <label className="signature-label" htmlFor="pdf-password">Contraseña del PDF</label>
+            <input
+              id="pdf-password"
+              className="password-input"
+              type="password"
+              autoComplete="current-password"
+              autoFocus
+              value={pdfPasswordDialog.password}
+              onChange={(event) => setPdfPasswordDialog({ ...pdfPasswordDialog, password: event.target.value })}
+            />
+            {pdfPasswordDialog.error && <p className="password-error" role="alert">{pdfPasswordDialog.error}</p>}
+            <div className="dialog-footer">
+              <button type="button" onClick={cancelPdfPasswordRequest}>Cancelar</button>
+              <button className="dialog-primary" type="submit">Desbloquear</button>
+            </div>
+          </form>
         </div>
       )}
       {dialog && (

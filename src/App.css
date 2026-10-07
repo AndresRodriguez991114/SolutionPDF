@@ -325,6 +325,26 @@ button { font: inherit; }
 .status-left { display: flex; flex: 0 0 auto; align-items: center; gap: 7px; }
 .statusbar > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.merge-progress {
+  position: fixed;
+  z-index: 1100;
+  right: 18px;
+  bottom: 42px;
+  width: min(330px, calc(100vw - 36px));
+  padding: 14px 16px;
+  color: #37403c;
+  background: #fff;
+  border: 1px solid #e4e7e2;
+  border-radius: 6px;
+  box-shadow: 0 8px 26px rgba(27, 34, 31, .18);
+}
+.merge-progress-heading { display: flex; align-items: center; gap: 9px; font-size: 12px; }
+.merge-progress-spinner { flex: 0 0 auto; color: #b8493c; animation: merge-progress-spin 1s linear infinite; }
+.merge-progress p { margin: 8px 0 11px 26px; color: #707975; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.merge-progress-track { height: 4px; overflow: hidden; margin-left: 26px; background: #eceeeb; border-radius: 4px; }
+.merge-progress-track span { display: block; height: 100%; background: #b8493c; border-radius: inherit; transition: width .2s ease; }
+@keyframes merge-progress-spin { to { transform: rotate(360deg); } }
+
 .pdf-viewer { width: 100%; height: 100%; overflow: auto; padding: 25px; }
 .pdf-viewer > .react-pdf__Document { display: flex; flex-direction: column; align-items: center; gap: 20px; }
 .pdf-page { background: #fff; box-shadow: 0 3px 14px rgba(32, 38, 35, .14); }
@@ -403,6 +423,19 @@ button { font: inherit; }
 .app-dialog h2 { margin: 0 0 8px; font-size: 16px; font-weight: 650; }
 .app-dialog > p { margin: 0 0 16px; color: #737b78; font-size: 12px; line-height: 1.5; }
 .app-dialog .dialog-message { white-space: pre-line; }
+.password-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  color: #333b38;
+  background: #fff;
+  border: 1px solid #dfe2de;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 12px;
+  outline-color: #b8493c;
+}
+.password-error { margin: 9px 0 0 !important; color: #a33f35 !important; }
 .edit-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .edit-actions button, .dialog-footer button {
   display: inline-flex;
@@ -532,7 +565,8 @@ button { font: inherit; }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .notice-dialog { animation: none; }
+  .notice-dialog, .merge-progress-spinner { animation: none; }
+  .merge-progress-track span { transition: none; }
 }
 .preference-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #424a48; font-size: 12px; }
 .preference-control select { min-width: 94px; height: 32px; padding: 0 8px; color: #424a48; background: #fff; border: 1px solid #dfe2de; border-radius: 3px; font: inherit; }

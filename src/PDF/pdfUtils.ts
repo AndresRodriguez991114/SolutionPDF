@@ -157,14 +157,21 @@ export async function applyPageAction(
 }
 
 export async function mergePdfs(
-  documents: Uint8Array[]
+  documents: { bytes: Uint8Array; name: string }[],
+  onProgress?: (current: number, total: number) => void
 ): Promise<Uint8Array> {
   const merged = await PDFDocument.create();
 
-  for (const bytes of documents) {
-    const source = await loadPdf(bytes);
-    const pages = await merged.copyPages(source, source.getPageIndices());
-    pages.forEach((page) => merged.addPage(page));
+  for (const [index, document] of documents.entries()) {
+    try {
+      const source = await loadPdf(document.bytes);
+      const pages = await merged.copyPages(source, source.getPageIndices());
+      pages.forEach((page) => merged.addPage(page));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`No se pudo procesar "${document.name}": ${message}`);
+    }
+    onProgress?.(index + 1, documents.length);
   }
 
   return savePdf(merged, { useObjectStreams: true });

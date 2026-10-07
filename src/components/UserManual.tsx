@@ -23,7 +23,7 @@ const sections: ManualSection[] = [
     title: "Trabaja con tus PDF",
     introduction: "SolutionsPDF reúne lectura, organización y anotación en una sola ventana. Abre un documento para comenzar; tus archivos permanecen en este dispositivo.",
     topics: [
-      { title: "Abrir un documento", body: "Pulsa Abrir PDF en la barra de herramientas o elige Archivo > Abrir PDF. También puedes usar Ctrl+O. Los documentos que abras aparecerán en Documentos locales para volver a abrirlos rápidamente." },
+      { title: "Abrir un documento", body: "Pulsa Abrir PDF en la barra de herramientas o elige Archivo > Abrir PDF. También puedes usar Ctrl+O. Si el PDF está protegido, ingresa su contraseña para abrirlo. La contraseña solo se usa en este dispositivo y no se guarda. Los documentos que abras aparecerán en Documentos locales para volver a abrirlos rápidamente." },
       { title: "Recorrer el documento", body: "Desplázate por las páginas en el área central. El indicador superior muestra la página actual y el total. En el panel Páginas, selecciona una miniatura para saltar directamente a ella." },
       { title: "Guardar el trabajo", body: "Usa Archivo > Guardar o Ctrl+S para guardar los cambios en el archivo abierto. Guardar como... crea una copia en otra ubicación. Si intentas cerrar con cambios pendientes, la app te preguntará si quieres guardarlos." },
     ],
@@ -36,7 +36,7 @@ const sections: ManualSection[] = [
     introduction: "Las operaciones de archivo están en la barra de herramientas y en el menú Archivo. Usa Guardar como... si quieres conservar intacto el original.",
     topics: [
       { title: "Documentos locales", body: "El panel izquierdo muestra archivos abiertos recientemente. Selecciona uno para abrirlo y usa la lupa para filtrar la lista. Se guardan rutas locales, no se suben los PDF a la nube." },
-      { title: "Unir PDF", body: "Pulsa Unir PDF y selecciona los documentos que quieras combinar. Si hay un PDF abierto, también se incluye. La app genera un archivo nuevo y te permite elegir dónde guardarlo." },
+      { title: "Unir PDF", body: "Pulsa Unir PDF y selecciona los documentos que quieras combinar. Si hay un PDF abierto, también se incluye. Puedes ingresar la contraseña de los archivos protegidos. La copia unida queda sin contraseña; los originales no cambian. La app genera un archivo nuevo y te permite elegir dónde guardarlo." },
       { title: "Optimizar", body: "Pulsa Optimizar PDF para guardar una copia con una estructura interna más compacta. Si el resultado no es más pequeño, no se crea una copia mayor. Las imágenes no se recomprimen." },
       { title: "Imprimir y propiedades", body: "Pulsa Imprimir o usa Ctrl+P para abrir las opciones de impresión. En Archivo > Propiedades del archivo puedes consultar información del PDF abierto." },
     ],

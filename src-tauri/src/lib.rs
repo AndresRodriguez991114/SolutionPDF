@@ -47,6 +47,25 @@ fn save_pdf(path: String, bytes: Vec<u8>) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn unlock_pdf(bytes: Vec<u8>, password: String) -> Result<Vec<u8>, String> {
+    let pdfium = shared_pdfium()?;
+    let source = pdfium
+        .load_pdf_from_byte_vec(bytes, Some(&password))
+        .map_err(|_| "La contraseña es incorrecta o el PDF no se puede desbloquear.".to_string())?;
+    let page_count = source.pages().len();
+    if page_count == 0 {
+        return Err("El PDF protegido no contiene páginas.".into());
+    }
+
+    let mut unlocked = pdfium.create_new_pdf().map_err(|error| error.to_string())?;
+    unlocked
+        .pages_mut()
+        .copy_pages_from_document(&source, &format!("1-{page_count}"), 0)
+        .map_err(|error| error.to_string())?;
+    unlocked.save_to_bytes().map_err(|error| error.to_string())
+}
+
 #[derive(Deserialize)]
 struct SelectionRect {
     x: f32,
@@ -367,6 +386,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             save_pdf,
+            unlock_pdf,
             replace_pdf_text,
             take_pending_pdf_paths
         ])
@@ -377,7 +397,8 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        left_shift_to_fit_page, replace_pdf_text, shift_following_text_on_same_line, SelectionRect,
+        left_shift_to_fit_page, replace_pdf_text, shared_pdfium, shift_following_text_on_same_line,
+        unlock_pdf, SelectionRect,
     };
     use pdfium_bundled::pdfium_render::prelude::PdfPageObjectsCommon;
 
@@ -422,6 +443,17 @@ mod tests {
 
     fn minimal_text_pdf() -> Vec<u8> {
         minimal_text_pdf_at(72)
+    }
+
+    #[test]
+    fn copies_pdfium_document_pages_into_an_editable_pdf() {
+        let bytes = unlock_pdf(minimal_text_pdf(), String::new()).unwrap();
+        let document = shared_pdfium()
+            .unwrap()
+            .load_pdf_from_byte_vec(bytes, None)
+            .unwrap();
+
+        assert_eq!(document.pages().len(), 1);
     }
 
     #[test]

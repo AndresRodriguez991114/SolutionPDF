@@ -535,7 +535,7 @@ function PdfViewer({
       loading={<div className="pdf-loading">Cargando documento...</div>}
       error={
         <div className="pdf-error">
-          No se pudo mostrar el PDF: {documentError || "verifica que el archivo sea válido y no tenga contraseña"}
+          No se pudo mostrar el PDF: {documentError || "verifica que el archivo sea un PDF válido"}
         </div>
       }
     >

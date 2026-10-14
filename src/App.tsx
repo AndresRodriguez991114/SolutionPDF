@@ -222,6 +222,7 @@ async function persistEditableSnapshot(
 function App() {
   const [pdfFile, setPdfFile] = useState<string | null>(null);
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
+  const [printRequest, setPrintRequest] = useState(0);
   const [documentRevision, setDocumentRevision] = useState(0);
   const pdfBytesRef = useRef<Uint8Array | null>(null);
   const undoStack = useRef<Uint8Array[]>([]);
@@ -988,7 +989,27 @@ function App() {
   }
 
   function handlePrint() {
-    if (pdfFile) window.print();
+    if (!pdfFile || printRequest > 0) return;
+    if (pageCount === 0) {
+      notify("Documento no disponible", "Espera a que termine de cargar antes de imprimir.");
+      return;
+    }
+    setPrintRequest((request) => request + 1);
+  }
+
+  function handlePrintReady(request: number) {
+    if (request !== printRequest) return;
+    try {
+      window.print();
+    } finally {
+      setPrintRequest(0);
+    }
+  }
+
+  function handlePrintError(error: Error) {
+    if (printRequest === 0) return;
+    setPrintRequest(0);
+    notify("No se pudo preparar la impresión", errorMessage(error));
   }
 
   function handleMenuAction(action: string) {
@@ -1122,7 +1143,7 @@ function App() {
       document.removeEventListener("pointerdown", handleOutsideClick);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [menu, pdfFile, dirty, zoom, showThumbnails]);
+  }, [menu, pdfFile, dirty, pageCount, printRequest, zoom, showThumbnails]);
 
   useEffect(() => {
     let active = true;
@@ -1275,6 +1296,9 @@ function App() {
               file={pdfBytes}
               sourcePath={pdfFile}
               hasUnsavedChanges={dirty || annotations.length > 0 || documentUnlocked}
+              printRequest={printRequest}
+              onPrintReady={handlePrintReady}
+              onPrintError={handlePrintError}
               currentPage={currentPage}
               onCurrentPageChange={setCurrentPage}
               onPageCountChange={setPageCount}

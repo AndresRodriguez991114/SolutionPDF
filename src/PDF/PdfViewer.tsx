@@ -35,10 +35,15 @@ const pdfOptions = {
   standardFontDataUrl: "/standard_fonts/",
 };
 
+const PRINT_DEVICE_PIXEL_RATIO = 3;
+
 interface PdfViewerProps {
   file: Uint8Array | null;
   sourcePath: string;
   hasUnsavedChanges: boolean;
+  printRequest: number;
+  onPrintReady: (request: number) => void;
+  onPrintError: (error: Error) => void;
   onPageCountChange?: (count: number) => void;
   currentPage: number;
   onCurrentPageChange: (pageNumber: number) => void;
@@ -91,6 +96,9 @@ function PdfViewer({
   file,
   sourcePath,
   hasUnsavedChanges,
+  printRequest,
+  onPrintReady,
+  onPrintError,
   onPageCountChange,
   currentPage,
   onCurrentPageChange,
@@ -135,6 +143,8 @@ function PdfViewer({
   const thumbnailPanelRef = useRef<HTMLDivElement | null>(null);
   const pageIndicatorTimerRef = useRef<number | null>(null);
   const scrollSyncPageRef = useRef<number | null>(null);
+  const printRenderedPagesRef = useRef<Set<number>>(new Set());
+  const completedPrintRequestRef = useRef(0);
   const requestedPageRef = useRef<number | null>(null);
   const currentPageRef = useRef(currentPage);
   const zoomRef = useRef(zoom);
@@ -196,6 +206,11 @@ function PdfViewer({
   useEffect(() => () => {
     searchTaskRef.current += 1;
   }, []);
+
+  useEffect(() => {
+    printRenderedPagesRef.current.clear();
+    completedPrintRequestRef.current = 0;
+  }, [printRequest]);
 
   function showPageIndicator() {
     setPageIndicatorVisible(true);
@@ -438,6 +453,22 @@ function PdfViewer({
   function onPageRenderError(error: Error) {
     console.error("SolutionsPDF: no se pudo dibujar una página", error);
     setPageRenderError(error.message);
+    if (printRequest > 0 && completedPrintRequestRef.current !== printRequest) {
+      completedPrintRequestRef.current = printRequest;
+      onPrintError(error);
+    }
+  }
+
+  function onPageRenderSuccess(pageNumber: number) {
+    if (printRequest === 0 || completedPrintRequestRef.current === printRequest) return;
+    const canvas = document.getElementById(`pdf-page-${pageNumber}`)?.querySelector("canvas");
+    if (!canvas || canvas.width < canvas.clientWidth * PRINT_DEVICE_PIXEL_RATIO) return;
+
+    printRenderedPagesRef.current.add(pageNumber);
+    if (printRenderedPagesRef.current.size === numPages) {
+      completedPrintRequestRef.current = printRequest;
+      onPrintReady(printRequest);
+    }
   }
 
   function goToPage(pageNumber: number) {
@@ -861,8 +892,10 @@ function PdfViewer({
                   <Page
                     pageNumber={pageNumber}
                     width={750 * zoom / 100}
+                    devicePixelRatio={printRequest > 0 ? PRINT_DEVICE_PIXEL_RATIO : undefined}
                     customTextRenderer={searchPageNumbers.has(pageNumber) ? ({ str }) => highlightSearchText(str, pdfSearchText) : undefined}
                     onRenderError={onPageRenderError}
+                    onRenderSuccess={() => onPageRenderSuccess(pageNumber)}
                   />
                   {pageAnnotations.flatMap((annotation) =>
                     annotation.kind === "text"

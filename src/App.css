@@ -629,6 +629,9 @@ button { font: inherit; }
     break-after: auto;
     page-break-after: auto;
   }
+  .pdf-annotation-delete, .pdf-annotation-resize {
+    display: none !important;
+  }
 }
 
 /* ================================

@@ -283,6 +283,12 @@ function App() {
   const checkingUpdatesRef = useRef(false);
   const cancelledUpdateVersionRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    void getCurrentWindow().show().catch((error: unknown) => {
+      console.error("SolutionsPDF: no se pudo mostrar la ventana", error);
+    });
+  }, []);
+
   const fileName = pdfFile?.split(/[\\/]/).pop();
 
   function setDocumentBytes(bytes: Uint8Array | null) {
@@ -1640,7 +1646,7 @@ function App() {
               : <Info size={18} aria-hidden="true" />}
             <strong>{updateInstalling ? "Instalando actualización…" : "Actualización disponible"}</strong>
           </div>
-          <p>SolutionsPDF {updateOffer.version} ya está disponible.</p>
+          <p>SolutionsPDF V.{updateOffer.version} ya está disponible.</p>
           <div className="update-notice-actions">
             <button type="button" onClick={handleCancelUpdate} disabled={updateInstalling}>Cancelar</button>
             <button type="button" onClick={() => setUpdateOffer(null)} disabled={updateInstalling}>Más tarde</button>

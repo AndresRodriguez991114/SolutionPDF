@@ -283,12 +283,6 @@ function App() {
   const checkingUpdatesRef = useRef(false);
   const cancelledUpdateVersionRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    void getCurrentWindow().show().catch((error: unknown) => {
-      console.error("SolutionsPDF: no se pudo mostrar la ventana", error);
-    });
-  }, []);
-
   const fileName = pdfFile?.split(/[\\/]/).pop();
 
   function setDocumentBytes(bytes: Uint8Array | null) {

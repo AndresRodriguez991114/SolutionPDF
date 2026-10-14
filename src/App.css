@@ -577,9 +577,39 @@ button { font: inherit; }
 .reading-mode .document-area { background: #252928; }
 
 @media print {
-  .topbar, .toolbar, .pages-panel, .statusbar, .pdf-info, .thumbnail-context-menu { display: none !important; }
-  .app, .workspace, .document-area, .pdf-workspace, .pdf-viewer { display: block !important; width: 100% !important; height: auto !important; min-height: 0 !important; overflow: visible !important; padding: 0 !important; background: #fff !important; }
-  .pdf-page { margin: 0 auto !important; box-shadow: none !important; break-after: page; }
+  @page { margin: 0; }
+  html, body, #root {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  .topbar, .toolbar, .pages-panel, .statusbar, .pdf-info, .pdf-search-panel,
+  .pdf-thumbnails-panel, .sidebar-resize-handle, .sidebar-mid-toggle,
+  .thumbnail-context-menu, .dialog-backdrop, .merge-progress {
+    display: none !important;
+  }
+  .app, .workspace, .document-area, .pdf-workspace, .pdf-viewer {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  .pdf-page {
+    margin: 0 auto !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    break-after: page;
+    page-break-after: always;
+  }
+  .pdf-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
 }
 
 /* ================================
@@ -840,7 +870,9 @@ button { font: inherit; }
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
   font-size: 13px;
   color: #555;
+  transition: opacity .2s ease, visibility .2s ease;
 }
+.pdf-info-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
 
 .pdf-page {
   position: relative;

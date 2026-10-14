@@ -121,12 +121,17 @@ function PdfViewer({
   const [activeSearchMatch, setActiveSearchMatch] = useState(0);
   const [searchingPdf, setSearchingPdf] = useState(false);
   const [pdfSearchError, setPdfSearchError] = useState<string | null>(null);
+  const [pageIndicatorVisible, setPageIndicatorVisible] = useState(true);
   const pdfViewerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null);
   const searchTaskRef = useRef(0);
   const handledSearchRequestRef = useRef(pdfSearchRequest);
   const thumbnailPanelRef = useRef<HTMLDivElement | null>(null);
+  const pageIndicatorTimerRef = useRef<number | null>(null);
+  const scrollSyncPageRef = useRef<number | null>(null);
+  const requestedPageRef = useRef<number | null>(null);
+  const currentPageRef = useRef(currentPage);
   const zoomRef = useRef(zoom);
   const onZoomChangeRef = useRef(onZoomChange);
   const zoomFrameRef = useRef<number | null>(null);
@@ -173,6 +178,7 @@ function PdfViewer({
 
   zoomRef.current = zoom;
   onZoomChangeRef.current = onZoomChange;
+  currentPageRef.current = currentPage;
 
   useEffect(() => {
     if (pdfSearchRequest === handledSearchRequestRef.current) return;
@@ -185,6 +191,53 @@ function PdfViewer({
   useEffect(() => () => {
     searchTaskRef.current += 1;
   }, []);
+
+  function showPageIndicator() {
+    setPageIndicatorVisible(true);
+    if (pageIndicatorTimerRef.current !== null) {
+      window.clearTimeout(pageIndicatorTimerRef.current);
+    }
+    pageIndicatorTimerRef.current = window.setTimeout(() => {
+      pageIndicatorTimerRef.current = null;
+      setPageIndicatorVisible(false);
+    }, 1500);
+  }
+
+  useEffect(() => {
+    showPageIndicator();
+    return () => {
+      if (pageIndicatorTimerRef.current !== null) {
+        window.clearTimeout(pageIndicatorTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const viewer = pdfViewerRef.current;
+    if (!viewer || numPages === 0) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      const visiblePages = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((first, second) => {
+          const center = viewer.getBoundingClientRect().top + viewer.clientHeight * 0.2;
+          return Math.abs(first.boundingClientRect.top - center) - Math.abs(second.boundingClientRect.top - center);
+        });
+      const page = visiblePages[0]?.target;
+      const pageNumber = Number(page instanceof HTMLElement ? page.id.replace("pdf-page-", "") : NaN);
+      if (!Number.isInteger(pageNumber) || pageNumber === currentPageRef.current) return;
+
+      scrollSyncPageRef.current = pageNumber;
+      onCurrentPageChange(pageNumber);
+    }, {
+      root: viewer,
+      rootMargin: "-15% 0px -75% 0px",
+      threshold: 0,
+    });
+
+    viewer.querySelectorAll(".pdf-page").forEach((page) => observer.observe(page));
+    return () => observer.disconnect();
+  }, [file, numPages, onCurrentPageChange]);
 
   async function searchPdfText(query: string) {
     const pdf = pdfDocumentRef.current;
@@ -301,13 +354,34 @@ function PdfViewer({
 
   useEffect(() => {
     if (numPages === 0) return;
+    if (scrollSyncPageRef.current === currentPage) {
+      scrollSyncPageRef.current = null;
+      return;
+    }
     const frame = window.requestAnimationFrame(() => {
-      document
-        .getElementById(`pdf-page-${currentPage}`)
-        ?.scrollIntoView({ behavior: "auto", block: "start" });
+      const page = document.getElementById(`pdf-page-${currentPage}`);
+      if (!page) return;
+      const behavior = requestedPageRef.current === currentPage ? "smooth" : "auto";
+      requestedPageRef.current = null;
+      page.scrollIntoView({ behavior, block: "start" });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [currentPage, file, numPages]);
+
+  useEffect(() => {
+    showPageIndicator();
+    const panel = thumbnailPanelRef.current;
+    const thumbnail = panel?.querySelector<HTMLElement>(`[data-page-number="${currentPage}"]`);
+    if (!panel || !thumbnail) return;
+
+    const panelBounds = panel.getBoundingClientRect();
+    const thumbnailBounds = thumbnail.getBoundingClientRect();
+    if (thumbnailBounds.top < panelBounds.top) {
+      panel.scrollTo({ top: panel.scrollTop + thumbnailBounds.top - panelBounds.top - 8, behavior: "smooth" });
+    } else if (thumbnailBounds.bottom > panelBounds.bottom) {
+      panel.scrollTo({ top: panel.scrollTop + thumbnailBounds.bottom - panelBounds.bottom + 8, behavior: "smooth" });
+    }
+  }, [currentPage, showThumbnails, thumbnailsCollapsed]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -362,13 +436,14 @@ function PdfViewer({
   }
 
   function goToPage(pageNumber: number) {
+    requestedPageRef.current = pageNumber;
     onCurrentPageChange(pageNumber);
 
     const pageElement = document.getElementById(
       `pdf-page-${pageNumber}`
     );
 
-    if (pageElement) {
+    if (pageElement && pageNumber === currentPage) {
       pageElement.scrollIntoView({
         behavior: "smooth",
         block: "start",
@@ -656,7 +731,11 @@ function PdfViewer({
       </aside>}
 
       {/* DOCUMENTO PRINCIPAL */}
-      <div ref={pdfViewerRef} className={`pdf-viewer ${pdfSearchOpen ? "search-open" : ""}`}>
+      <div
+        ref={pdfViewerRef}
+        className={`pdf-viewer ${pdfSearchOpen ? "search-open" : ""}`}
+        onScroll={showPageIndicator}
+      >
 
         {pdfSearchOpen && (
           <form
@@ -706,7 +785,7 @@ function PdfViewer({
           </form>
         )}
 
-        <div className="pdf-info">
+        <div className={`pdf-info ${pageIndicatorVisible ? "" : "pdf-info-hidden"}`}>
           <span>
             Página {currentPage} de {numPages}
           </span>

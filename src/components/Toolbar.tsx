@@ -103,10 +103,10 @@ function Toolbar({
         className="tool-button"
         onClick={onOptimizePdf}
         disabled={!hasDocument}
-        title={hasDocument ? "Guardar una copia optimizada" : "Abre un PDF primero"}
+        title={hasDocument ? "Guardar una copia comprimida" : "Abre un PDF primero"}
       >
         <Minimize2 size={22} strokeWidth={1.8} />
-        <span>Optimizar PDF</span>
+        <span>Comprimir PDF</span>
       </button>
 
       <button

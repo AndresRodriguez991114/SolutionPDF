@@ -423,6 +423,25 @@ button { font: inherit; }
 .app-dialog h2 { margin: 0 0 8px; font-size: 16px; font-weight: 650; }
 .app-dialog > p { margin: 0 0 16px; color: #737b78; font-size: 12px; line-height: 1.5; }
 .app-dialog .dialog-message { white-space: pre-line; }
+.compression-dialog { width: min(510px, 100%); }
+.compression-options { display: grid; border-top: 1px solid #dfe2de; }
+.compression-option {
+  display: flex;
+  align-items: center;
+  min-height: 76px;
+  gap: 13px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #dfe2de;
+  cursor: pointer;
+}
+.compression-option.selected { background: #f4f3f8; }
+.compression-option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.compression-option-copy { display: flex; flex-direction: column; gap: 4px; }
+.compression-option-copy strong { color: #b8493c; font-size: 12px; font-weight: 600; }
+.compression-option-copy > span { color: #49514e; font-size: 13px; }
+.compression-option-check { flex: 0 0 auto; margin-left: auto; padding: 3px; color: #fff; background: #43c98a; border-radius: 50%; }
+.compression-option:focus-within { outline: 2px solid #b8493c; outline-offset: -2px; }
+.compression-warning { margin: 14px 0 0 !important; font-size: 11px !important; }
 .password-input {
   width: 100%;
   height: 36px;

@@ -1,4 +1,13 @@
 import { PDFDocument, StandardFonts, degrees, rgb } from "pdf-lib";
+import { pdfjs } from "react-pdf";
+
+export type PdfCompressionLevel = "extreme" | "recommended" | "low";
+
+const compressionSettings: Record<PdfCompressionLevel, { dpi: number; quality: number }> = {
+  extreme: { dpi: 72, quality: 0.35 },
+  recommended: { dpi: 120, quality: 0.65 },
+  low: { dpi: 180, quality: 0.85 },
+};
 
 export type PageAction =
   | "rotate-left"
@@ -177,9 +186,63 @@ export async function mergePdfs(
   return savePdf(merged, { useObjectStreams: true });
 }
 
-export async function optimizePdf(bytes: Uint8Array): Promise<Uint8Array> {
-  const pdf = await loadPdf(bytes);
-  return savePdf(pdf, { useObjectStreams: true, objectsPerTick: 50 });
+export async function compressPdf(
+  bytes: Uint8Array,
+  level: PdfCompressionLevel,
+  onProgress?: (current: number, total: number) => void
+): Promise<Uint8Array> {
+  const settings = compressionSettings[level];
+  const loadingTask = pdfjs.getDocument({ data: Uint8Array.from(bytes) });
+
+  try {
+    const source = await loadingTask.promise;
+    const compressed = await PDFDocument.create();
+    for (let pageNumber = 1; pageNumber <= source.numPages; pageNumber += 1) {
+      const sourcePage = await source.getPage(pageNumber);
+      const baseViewport = sourcePage.getViewport({ scale: 1 });
+      const requestedScale = settings.dpi / 72;
+      const pixelLimitScale = Math.sqrt(16_000_000 / (baseViewport.width * baseViewport.height));
+      const scale = Math.min(requestedScale, pixelLimitScale);
+      const viewport = sourcePage.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) throw new Error("No se pudo preparar la imagen de una página.");
+
+      try {
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        await sourcePage.render({ canvas, canvasContext: context, viewport }).promise;
+        const imageBlob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob(
+            (blob) => blob ? resolve(blob) : reject(new Error("No se pudo comprimir la imagen de una página.")),
+            "image/jpeg",
+            settings.quality
+          );
+        });
+        const image = await compressed.embedJpg(await imageBlob.arrayBuffer());
+        const pageWidth = viewport.width / scale;
+        const pageHeight = viewport.height / scale;
+        compressed.addPage([pageWidth, pageHeight]).drawImage(image, {
+          x: 0,
+          y: 0,
+          width: pageWidth,
+          height: pageHeight,
+        });
+      } finally {
+        sourcePage.cleanup();
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+
+      onProgress?.(pageNumber, source.numPages);
+    }
+
+    return compressed.save({ useObjectStreams: true, objectsPerTick: 50 });
+  } finally {
+    await loadingTask.destroy();
+  }
 }
 
 export interface NormalizedRect {

@@ -34,10 +34,11 @@ import {
   applyPageAction,
   mergePdfs,
   movePageTo,
-  optimizePdf,
+  compressPdf,
   type PdfAnnotation,
   type NormalizedRect,
   type PageAction,
+  type PdfCompressionLevel,
 } from "./PDF/pdfUtils";
 import type { PdfTool } from "./components/Toolbar";
 
@@ -73,6 +74,11 @@ interface MergeProgress {
   current: number;
   total: number;
   fileName?: string;
+}
+
+interface CompressionProgress {
+  current: number;
+  total: number;
 }
 
 function readRecentFiles(): string[] {
@@ -239,6 +245,9 @@ function App() {
   const [protectionInProgress, setProtectionInProgress] = useState(false);
   const protectInProgressRef = useRef(false);
   const [manualOpen, setManualOpen] = useState(false);
+  const [compressionDialogOpen, setCompressionDialogOpen] = useState(false);
+  const [compressionLevel, setCompressionLevel] = useState<PdfCompressionLevel>("recommended");
+  const [compressionProgress, setCompressionProgress] = useState<CompressionProgress | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<PdfTool>(null);
   const [textTarget, setTextTarget] = useState<{ pageNumber: number; x: number; y: number; rectangles?: NormalizedRect[]; annotationId?: string; selectedText?: string } | null>(null);
@@ -629,19 +638,31 @@ function App() {
   }
 
   async function handleOptimizePdf() {
+    if (!pdfBytesRef.current) return;
+    setCompressionDialogOpen(true);
+  }
+
+  async function handleCompressPdf() {
     const current = pdfBytesRef.current;
     if (!current) return;
+    setCompressionDialogOpen(false);
+    setCompressionProgress({ current: 0, total: pageCount });
     try {
-      const optimized = await optimizePdf(await applyAnnotationsToPdf(current, annotations));
-      const difference = current.length - optimized.length;
+      const source = await applyAnnotationsToPdf(current, annotations);
+      const compressed = await compressPdf(source, compressionLevel, (currentPage, total) => {
+        setCompressionProgress({ current: currentPage, total });
+      });
+      const difference = source.length - compressed.length;
       if (difference <= 0) {
-        notify("Optimización completada", `La estructura ya es compacta (${formatBytes(current.length)}). No se guardó una copia mayor. Las imágenes no se recomprimen.`);
+        notify("Compresión completada", `Con este nivel no se obtuvo un archivo más pequeño (${formatBytes(source.length)}). No se guardó una copia mayor.`);
         return;
       }
-      const path = await saveCopy(optimized, fileName?.replace(/\.pdf$/i, "-optimizado.pdf") || "documento-optimizado.pdf");
-      if (path) setStatus(`Optimizado: ${formatBytes(current.length)} → ${formatBytes(optimized.length)}`);
+      const path = await saveCopy(compressed, fileName?.replace(/\.pdf$/i, `-${compressionLevel}.pdf`) || `documento-${compressionLevel}.pdf`);
+      if (path) setStatus(`Comprimido: ${formatBytes(source.length)} → ${formatBytes(compressed.length)}`);
     } catch (error) {
-      notify("No se pudo optimizar el PDF", errorMessage(error));
+      notify("No se pudo comprimir el PDF", errorMessage(error));
+    } finally {
+      setCompressionProgress(null);
     }
   }
 
@@ -1316,6 +1337,66 @@ function App() {
             <span style={{ width: `${(mergeProgress.current / mergeProgress.total) * 100}%` }} />
           </div>
         </aside>
+      )}
+
+      {compressionProgress && (
+        <aside className="merge-progress" role="status" aria-live="polite">
+          <div className="merge-progress-heading">
+            <LoaderCircle className="merge-progress-spinner" size={17} aria-hidden="true" />
+            <strong>Comprimiendo PDF</strong>
+          </div>
+          <p>
+            {compressionProgress.total > 0
+              ? `Procesando página ${compressionProgress.current} de ${compressionProgress.total}`
+              : "Preparando páginas..."}
+          </p>
+          <div
+            className="merge-progress-track"
+            role="progressbar"
+            aria-label="Páginas comprimidas"
+            aria-valuemin={0}
+            aria-valuemax={compressionProgress.total}
+            aria-valuenow={compressionProgress.current}
+          >
+            <span style={{ width: `${compressionProgress.total ? (compressionProgress.current / compressionProgress.total) * 100 : 0}%` }} />
+          </div>
+        </aside>
+      )}
+
+      {compressionDialogOpen && (
+        <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCompressionDialogOpen(false); }}>
+          <section className="app-dialog compression-dialog" role="dialog" aria-modal="true" aria-labelledby="compression-dialog-title">
+            <h2 id="compression-dialog-title">Comprimir PDF</h2>
+            <p>Elige cuánto reducir el tamaño del archivo.</p>
+            <div className="compression-options" role="radiogroup" aria-label="Nivel de compresión">
+              {([
+                { id: "extreme", title: "COMPRESIÓN EXTREMA", description: "Menos calidad, alta compresión" },
+                { id: "recommended", title: "COMPRESIÓN RECOMENDADA", description: "Buena calidad, buena compresión" },
+                { id: "low", title: "BAJA COMPRESIÓN", description: "Alta calidad, menos compresión" },
+              ] as const).map((option) => (
+                <label className={`compression-option ${compressionLevel === option.id ? "selected" : ""}`} key={option.id}>
+                  <input
+                    type="radio"
+                    name="compression-level"
+                    value={option.id}
+                    checked={compressionLevel === option.id}
+                    onChange={() => setCompressionLevel(option.id)}
+                  />
+                  <span className="compression-option-copy">
+                    <strong>{option.title}</strong>
+                    <span>{option.description}</span>
+                  </span>
+                  {compressionLevel === option.id && <Check className="compression-option-check" size={20} aria-hidden="true" />}
+                </label>
+              ))}
+            </div>
+            <p className="compression-warning">Las páginas se guardarán como imágenes; el texto dejará de ser seleccionable o buscable. El PDF original no se modifica.</p>
+            <div className="dialog-footer">
+              <button onClick={() => setCompressionDialogOpen(false)}>Cancelar</button>
+              <button className="dialog-primary" onClick={() => void handleCompressPdf()}>Comprimir PDF</button>
+            </div>
+          </section>
+        </div>
       )}
 
       {editDialogOpen && (

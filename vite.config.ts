@@ -1,12 +1,24 @@
-import { defineConfig } from "vite";
+// @ts-expect-error type error without @types/node package
+import path from "node:path";
+import { defineConfig, normalizePath } from "vite";
 import react from "@vitejs/plugin-react";
+import { viteStaticCopy } from "vite-plugin-static-copy";
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
 const host = process.env.TAURI_DEV_HOST;
+const pdfjsDistPath = path.resolve("node_modules/pdfjs-dist");
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
-  plugins: [react()],
+  plugins: [
+    react(),
+    viteStaticCopy({
+      targets: [
+        { src: normalizePath(path.join(pdfjsDistPath, "wasm", "*")), dest: "wasm" },
+        { src: normalizePath(path.join(pdfjsDistPath, "standard_fonts", "*")), dest: "standard_fonts" },
+      ],
+    }),
+  ],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

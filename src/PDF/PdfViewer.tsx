@@ -30,6 +30,11 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).toString();
 
+const pdfOptions = {
+  wasmUrl: "/wasm/",
+  standardFontDataUrl: "/standard_fonts/",
+};
+
 interface PdfViewerProps {
   file: Uint8Array | null;
   sourcePath: string;
@@ -604,6 +609,7 @@ function PdfViewer({
     <Document
       className="pdf-workspace"
       file={documentSource}
+      options={pdfOptions}
       suspense={false}
       onLoadSuccess={onDocumentLoadSuccess}
       onLoadError={onDocumentLoadError}

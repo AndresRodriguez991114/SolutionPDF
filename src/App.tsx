@@ -5,7 +5,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { check } from "@tauri-apps/plugin-updater";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import {
   ArrowDown,
   ArrowUp,
@@ -223,6 +223,8 @@ function App() {
   const [pdfFile, setPdfFile] = useState<string | null>(null);
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [printRequest, setPrintRequest] = useState(0);
+  const [updateOffer, setUpdateOffer] = useState<Update | null>(null);
+  const [updateInstalling, setUpdateInstalling] = useState(false);
   const [documentRevision, setDocumentRevision] = useState(0);
   const pdfBytesRef = useRef<Uint8Array | null>(null);
   const undoStack = useRef<Uint8Array[]>([]);
@@ -278,6 +280,8 @@ function App() {
   const [documentUnlocked, setDocumentUnlocked] = useState(false);
   const [mergeProgress, setMergeProgress] = useState<MergeProgress | null>(null);
   const mergeInProgressRef = useRef(false);
+  const checkingUpdatesRef = useRef(false);
+  const cancelledUpdateVersionRef = useRef<string | null>(null);
 
   const fileName = pdfFile?.split(/[\\/]/).pop();
 
@@ -942,37 +946,59 @@ function App() {
     }
   }
 
-  async function handleCheckUpdates() {
+  async function checkForUpdates(silent: boolean) {
+    if (checkingUpdatesRef.current) return;
+    checkingUpdatesRef.current = true;
     try {
       setStatus("Buscando actualizaciones...");
       const update = await check();
       if (!update) {
         setStatus("La aplicación está actualizada");
-        notify("Sin actualizaciones", "Tienes la versión más reciente de SolutionsPDF.");
+        if (!silent) notify("Sin actualizaciones", "Tienes la versión más reciente de SolutionsPDF.");
         return;
       }
 
-      const details = update.body ? `\n\n${update.body}` : "";
-      const shouldInstall = await confirm(
-        `Está disponible SolutionsPDF ${update.version}.${details}\n\n¿Descargar e instalar ahora?`,
-        {
-          title: "Actualización disponible",
-          kind: "info",
-          okLabel: "Actualizar",
-          cancelLabel: "Más tarde",
-        },
-      );
-      if (!shouldInstall) return;
+      setStatus(`Actualización ${update.version} disponible`);
+      if (cancelledUpdateVersionRef.current !== update.version) setUpdateOffer(update);
+    } catch (error) {
+      setStatus("No se pudo buscar actualizaciones");
+      if (!silent) notify("No se pudieron buscar actualizaciones", errorMessage(error));
+    } finally {
+      checkingUpdatesRef.current = false;
+    }
+  }
 
-      setStatus("Descargando actualización...");
+  function handleCheckUpdates() {
+    void checkForUpdates(false);
+  }
+
+  async function handleInstallUpdate() {
+    if (!updateOffer || updateInstalling) return;
+    const update = updateOffer;
+    setUpdateInstalling(true);
+    setStatus("Descargando actualización...");
+    try {
       await update.downloadAndInstall();
       setStatus("Reiniciando SolutionsPDF...");
       await relaunch();
     } catch (error) {
-      setStatus("No se pudo buscar actualizaciones");
-      notify("No se pudieron buscar actualizaciones", errorMessage(error));
+      setUpdateInstalling(false);
+      notify("No se pudo instalar la actualización", errorMessage(error));
     }
   }
+
+  function handleCancelUpdate() {
+    if (!updateOffer) return;
+    cancelledUpdateVersionRef.current = updateOffer.version;
+    setUpdateOffer(null);
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void checkForUpdates(true);
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   async function handleAbout() {
     const version = await getVersion().catch(() => null);
@@ -1046,7 +1072,7 @@ function App() {
       case "reading-mode": setReadingMode((value) => !value); break;
       case "manual": setManualOpen(true); break;
       case "about": void handleAbout(); break;
-      case "updates": void handleCheckUpdates(); break;
+      case "updates": handleCheckUpdates(); break;
       case "properties": void handleFileProperties(); break;
       case "edit-page": setEditDialogOpen(true); break;
       case "protect": setPdfProtectionDialog({ password: "", confirmation: "", error: null }); break;
@@ -1605,6 +1631,24 @@ function App() {
             </div>
           </form>
         </div>
+      )}
+      {updateOffer && (
+        <section className="update-notice" role="status" aria-live="polite">
+          <div className="update-notice-heading">
+            {updateInstalling
+              ? <LoaderCircle className="merge-progress-spinner" size={18} aria-hidden="true" />
+              : <Info size={18} aria-hidden="true" />}
+            <strong>{updateInstalling ? "Instalando actualización…" : "Actualización disponible"}</strong>
+          </div>
+          <p>SolutionsPDF {updateOffer.version} ya está disponible.</p>
+          <div className="update-notice-actions">
+            <button type="button" onClick={handleCancelUpdate} disabled={updateInstalling}>Cancelar</button>
+            <button type="button" onClick={() => setUpdateOffer(null)} disabled={updateInstalling}>Más tarde</button>
+            <button type="button" className="dialog-primary" onClick={() => void handleInstallUpdate()} disabled={updateInstalling}>
+              {updateInstalling ? "Descargando…" : "Descargar"}
+            </button>
+          </div>
+        </section>
       )}
       {dialog && (
         <div className="dialog-backdrop notice-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialog(null); }}>

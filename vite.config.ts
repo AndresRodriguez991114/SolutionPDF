@@ -8,6 +8,8 @@ import { viteStaticCopy } from "vite-plugin-static-copy";
 import process from "node:process";
 const host = process.env.TAURI_DEV_HOST;
 const pdfjsDistPath = path.resolve("node_modules/pdfjs-dist");
+const tesseractDistPath = path.resolve("node_modules/tesseract.js/dist");
+const tesseractCorePath = path.resolve("node_modules/tesseract.js-core");
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
@@ -17,6 +19,9 @@ export default defineConfig(() => ({
       targets: [
         { src: normalizePath(path.join(pdfjsDistPath, "wasm", "*")), dest: "wasm" },
         { src: normalizePath(path.join(pdfjsDistPath, "standard_fonts", "*")), dest: "standard_fonts" },
+        { src: normalizePath(path.join(tesseractDistPath, "worker.min.js")), dest: "tesseract" },
+        { src: normalizePath(path.join(tesseractCorePath, "tesseract-core-simd-lstm.wasm.js")), dest: "tesseract" },
+        { src: normalizePath(path.join(tesseractCorePath, "tesseract-core-lstm.wasm.js")), dest: "tesseract" },
       ],
     }),
   ],

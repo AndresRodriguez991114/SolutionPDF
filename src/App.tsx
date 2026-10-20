@@ -26,6 +26,8 @@ import brandMark from "./assets/solutionspdf-mark.svg";
 
 import PdfViewer from "./PDF/PdfViewer";
 import Toolbar from "./components/Toolbar";
+import { exportPdfToWord } from "./PDF/exportWord";
+import type { WordExportMode, WordExportQuality } from "./PDF/exportWord";
 import PagesPanel from "./components/PagesPanel";
 import UserManual from "./components/UserManual";
 import StatusBar from "./components/StatusBar";
@@ -194,6 +196,13 @@ function App() {
   const [compressionLevel, setCompressionLevel] = useState<PdfCompressionLevel>("recommended");
   const [compressionProgress, setCompressionProgress] = useState<CompressionProgress | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [wordDialogOpen, setWordDialogOpen] = useState(false);
+  const [wordMode, setWordMode] = useState<WordExportMode>("faithful");
+  const [wordQuality, setWordQuality] = useState<WordExportQuality>("high");
+  const [wordUseOcr, setWordUseOcr] = useState(false);
+  const [wordPages, setWordPages] = useState("");
+  const [wordProgress, setWordProgress] = useState<CompressionProgress | null>(null);
+  const wordAbortRef = useRef<AbortController | null>(null);
   const [splitDialogOpen, setSplitDialogOpen] = useState(false);
   const [splitRanges, setSplitRanges] = useState("");
   const [splitError, setSplitError] = useState<string | null>(null);
@@ -615,6 +624,100 @@ function App() {
     } finally {
       setCompressionProgress(null);
     }
+  }
+
+  function handleExportWord() {
+    if (!pdfBytesRef.current) return;
+    setWordPages("");
+    setWordQuality("high");
+    setWordUseOcr(false);
+    setWordDialogOpen(true);
+  }
+
+  function encodePathHex(text: string): string {
+    return Array.from(new TextEncoder().encode(text), (value) => value.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function saveBinaryWord(path: string, bytes: Uint8Array): Promise<void> {
+    try {
+      await invoke("save_binary_file", bytes, { headers: { "x-file-path-hex": encodePathHex(path) } });
+    } catch (error) {
+      console.warn("SolutionsPDF: no se pudo usar save_binary_file, se usará save_pdf", error);
+      await invoke("save_pdf", { path, bytes: Array.from(bytes) });
+    }
+  }
+
+  async function handleRunWordExport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const current = pdfBytesRef.current;
+    if (!current) return;
+
+    let pageNumbers: number[] | undefined;
+    if (wordPages.trim()) {
+      try {
+        pageNumbers = parsePageRanges(wordPages, pageCount).flatMap(({ start, end }) =>
+          Array.from({ length: end - start + 1 }, (_, offset) => start + offset)
+        );
+      } catch (error) {
+        notify("Páginas no válidas", errorMessage(error));
+        return;
+      }
+    }
+
+    const baseName = (fileName || "documento.pdf").replace(/\.pdf$/i, "");
+    const abortController = new AbortController();
+    wordAbortRef.current = abortController;
+    try {
+      const path = await saveDialog({
+        defaultPath: `${baseName}.docx`,
+        filters: [{ name: "Documento de Word", extensions: ["docx"] }],
+      });
+      if (!path) return;
+      setWordDialogOpen(false);
+      setWordProgress({ current: 0, total: pageNumbers?.length ?? pageCount });
+      const source = await applyAnnotationsToPdf(current, annotations);
+      const { bytes, pagesWithoutText, substitutedFonts, ocrPages } = await exportPdfToWord(source, {
+        mode: wordMode,
+        quality: wordQuality,
+        enableOcr: wordUseOcr,
+        signal: abortController.signal,
+        pageNumbers,
+        onProgress: (done, total) => setWordProgress({ current: done, total }),
+      });
+      await saveBinaryWord(path, bytes);
+      setStatus("Exportado a Word");
+      try {
+        await invoke("open_exported_file", { path });
+      } catch (error) {
+        notify("Se exportó a Word, pero no se pudo abrir el archivo", errorMessage(error));
+      }
+      if (wordMode !== "image" && pagesWithoutText.length > 0) {
+        notify(
+          "Páginas sin texto seleccionable",
+          ocrPages.length > 0
+            ? `Se aplicó OCR en: ${ocrPages.join(", ")}. Sin texto editable: ${pagesWithoutText.filter((page) => !ocrPages.includes(page)).join(", ") || "ninguna"}.`
+            : `Estas páginas parecen escaneadas y no tienen texto editable: ${pagesWithoutText.join(", ")}.\nActiva “OCR” o usa el modo “Imagen idéntica”.`
+        );
+      }
+      if (substitutedFonts.length > 0) {
+        notify("Fuentes sustituidas", `Word reemplazó fuentes no instaladas: ${substitutedFonts.slice(0, 8).join(", ")}${substitutedFonts.length > 8 ? "…" : ""}.`);
+      }
+    } catch (error) {
+      if (abortController.signal.aborted) {
+        setStatus("Exportación cancelada");
+      } else {
+        setStatus("Listo");
+        notify("No se pudo exportar a Word", errorMessage(error));
+      }
+    } finally {
+      wordAbortRef.current = null;
+      setWordProgress(null);
+    }
+  }
+
+  function handleCancelWordExport() {
+    wordAbortRef.current?.abort();
+    wordAbortRef.current = null;
   }
 
   async function handlePageAction(action: PageAction, pageNumber: number) {
@@ -1394,6 +1497,7 @@ function App() {
         mergeInProgress={mergeProgress !== null}
         onOptimizePdf={handleOptimizePdf}
         onPrint={handlePrint}
+        onExportWord={handleExportWord}
         onCheckUpdates={handleCheckUpdates}
         hasDocument={Boolean(pdfFile)}
       />
@@ -1565,6 +1669,97 @@ function App() {
             <span style={{ width: `${compressionProgress.total ? (compressionProgress.current / compressionProgress.total) * 100 : 0}%` }} />
           </div>
         </aside>
+      )}
+
+      {wordProgress && (
+        <aside className="merge-progress" role="status" aria-live="polite">
+          <div className="merge-progress-heading">
+            <LoaderCircle className="merge-progress-spinner" size={17} aria-hidden="true" />
+            <strong>Exportando a Word</strong>
+          </div>
+          <p>
+            {wordProgress.current > 0
+              ? `Procesando página ${wordProgress.current} de ${wordProgress.total}`
+              : "Preparando páginas..."}
+          </p>
+          <div
+            className="merge-progress-track"
+            role="progressbar"
+            aria-label="Páginas exportadas"
+            aria-valuemin={0}
+            aria-valuemax={wordProgress.total}
+            aria-valuenow={wordProgress.current}
+          >
+            <span style={{ width: `${wordProgress.total ? (wordProgress.current / wordProgress.total) * 100 : 0}%` }} />
+          </div>
+          <div className="dialog-footer" style={{ marginTop: "0.75rem" }}>
+            <button type="button" onClick={handleCancelWordExport}>Cancelar exportación</button>
+          </div>
+        </aside>
+      )}
+
+      {wordDialogOpen && (
+        <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setWordDialogOpen(false); }}>
+          <form className="app-dialog compression-dialog" role="dialog" aria-modal="true" aria-labelledby="word-dialog-title" onSubmit={(event) => void handleRunWordExport(event)}>
+            <h2 id="word-dialog-title">Exportar a Word</h2>
+            <p>Elige cómo quieres que quede el documento. Al terminar se abrirá automáticamente.</p>
+            <div className="compression-options" role="radiogroup" aria-label="Modo de exportación">
+              {([
+                { id: "faithful", title: "FIEL AL PDF (RECOMENDADO)", description: "Mismo diseño y texto editable" },
+                { id: "image", title: "IMAGEN IDÉNTICA", description: "Cada página igual al PDF, sin texto editable" },
+                { id: "text", title: "SOLO TEXTO", description: "Texto con formato, sin imágenes ni gráficos" },
+              ] as const).map((option) => (
+                <label className={`compression-option ${wordMode === option.id ? "selected" : ""}`} key={option.id}>
+                  <input
+                    type="radio"
+                    name="word-mode"
+                    value={option.id}
+                    checked={wordMode === option.id}
+                    onChange={() => setWordMode(option.id)}
+                  />
+                  <span className="compression-option-copy">
+                    <strong>{option.title}</strong>
+                    <span>{option.description}</span>
+                  </span>
+                  {wordMode === option.id && <Check className="compression-option-check" size={20} aria-hidden="true" />}
+                </label>
+              ))}
+            </div>
+            <label className="signature-label" htmlFor="word-pages-input">Páginas (vacío = todas)</label>
+            <input
+              id="word-pages-input"
+              className="password-input"
+              value={wordPages}
+              placeholder={`Ej.: 1-3, 5 (el documento tiene ${pageCount})`}
+              onChange={(event) => setWordPages(event.target.value)}
+            />
+            <label className="signature-label" htmlFor="word-quality-input">Calidad del fondo</label>
+            <select
+              id="word-quality-input"
+              className="password-input"
+              value={wordQuality}
+              onChange={(event) => setWordQuality(event.target.value as WordExportQuality)}
+            >
+              <option value="high">Alta (recomendada)</option>
+              <option value="medium">Media</option>
+              <option value="low">Baja (archivo más liviano)</option>
+            </select>
+            <label className="signature-label" htmlFor="word-ocr-input">
+              <input
+                id="word-ocr-input"
+                type="checkbox"
+                checked={wordUseOcr}
+                onChange={(event) => setWordUseOcr(event.target.checked)}
+                style={{ marginRight: "0.5rem" }}
+              />
+              OCR para páginas escaneadas (más lento)
+            </label>
+            <div className="dialog-footer">
+              <button type="button" onClick={() => setWordDialogOpen(false)}>Cancelar</button>
+              <button type="submit" className="dialog-primary">Exportar y abrir</button>
+            </div>
+          </form>
+        </div>
       )}
 
       {compressionDialogOpen && (

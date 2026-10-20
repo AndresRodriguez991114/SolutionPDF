@@ -54,6 +54,69 @@ fn save_pdf(path: String, bytes: Vec<u8>) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|error| error.to_string())
 }
 
+fn decode_hex_utf8(encoded: &str) -> Result<String, String> {
+    if encoded.len() % 2 != 0 {
+        return Err("Ruta inválida.".into());
+    }
+    let mut bytes = Vec::with_capacity(encoded.len() / 2);
+    for index in (0..encoded.len()).step_by(2) {
+        let piece = &encoded[index..index + 2];
+        let value = u8::from_str_radix(piece, 16).map_err(|_| "Ruta inválida.".to_string())?;
+        bytes.push(value);
+    }
+    String::from_utf8(bytes).map_err(|_| "Ruta inválida.".to_string())
+}
+
+#[tauri::command]
+fn save_binary_file(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let headers = request.headers();
+    let encoded = headers
+        .get("x-file-path-hex")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| "No se recibió la ruta de destino.".to_string())?;
+    let path = decode_hex_utf8(encoded)?;
+    let output = Path::new(&path);
+    let is_docx = output
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("docx"));
+    if !is_docx {
+        return Err("Solo se permite guardar archivos .docx con este comando.".into());
+    }
+    let bytes = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.as_slice(),
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err("El guardado binario recibió un payload JSON en lugar de bytes.".into())
+        }
+    };
+    std::fs::write(output, bytes).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn open_exported_file(path: String) -> Result<(), String> {
+    let target = Path::new(&path);
+    let is_word = target
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("docx"));
+    if !is_word || !target.is_file() {
+        return Err("Solo se pueden abrir documentos Word exportados.".into());
+    }
+
+    let program = if cfg!(target_os = "windows") {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(program)
+        .arg(target)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
 #[derive(Deserialize)]
 struct ExportFile {
     name: String,
@@ -518,7 +581,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             save_pdf,
+            save_binary_file,
             save_page_exports,
+            open_exported_file,
             unlock_pdf,
             protect_pdf,
             replace_pdf_text,

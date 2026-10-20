@@ -1,4 +1,5 @@
 import {
+  FileText,
   Files,
   FolderOpen,
   Minimize2,
@@ -22,6 +23,7 @@ interface ToolbarProps {
   mergeInProgress: boolean;
   onOptimizePdf: () => void;
   onPrint: () => void;
+  onExportWord: () => void;
   onCheckUpdates: () => void;
   hasDocument: boolean;
 }
@@ -36,6 +38,7 @@ function Toolbar({
   mergeInProgress,
   onOptimizePdf,
   onPrint,
+  onExportWord,
   onCheckUpdates,
   hasDocument,
 }: ToolbarProps) {
@@ -125,6 +128,17 @@ function Toolbar({
       >
         <Printer size={22} strokeWidth={1.8} />
         <span>Imprimir</span>
+      </button>
+
+      <button
+        type="button"
+        className="tool-button"
+        onClick={onExportWord}
+        disabled={!hasDocument}
+        title={hasDocument ? "Exportar el texto del PDF a Word (.docx)" : "Abre un PDF primero"}
+      >
+        <FileText size={22} strokeWidth={1.8} />
+        <span>Exportar</span>
       </button>
 
       <div className="toolbar-spacer" />

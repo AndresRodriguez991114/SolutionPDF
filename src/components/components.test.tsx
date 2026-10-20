@@ -22,6 +22,7 @@ function renderToolbar(hasDocument = true) {
       mergeInProgress={false}
       onOptimizePdf={vi.fn()}
       onPrint={vi.fn()}
+      onExportWord={vi.fn()}
       onCheckUpdates={vi.fn()}
       hasDocument={hasDocument}
     />

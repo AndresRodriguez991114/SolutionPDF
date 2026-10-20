@@ -758,6 +758,7 @@ function PdfViewer({
                     <div className="thumbnail-actions-menu-popover">
                       <button
                         type="button"
+                        title="Dividir por rangos"
                         onClick={(event) => {
                           onSplitRanges();
                           event.currentTarget.closest("details")?.removeAttribute("open");
@@ -767,6 +768,7 @@ function PdfViewer({
                       </button>
                       <button
                         type="button"
+                        title="Un PDF por página"
                         onClick={(event) => {
                           void onExportEachPage();
                           event.currentTarget.closest("details")?.removeAttribute("open");
@@ -780,7 +782,11 @@ function PdfViewer({
               </div>
               {selectedPages.size > 0 && (
                 <div className="thumbnail-selection-toolbar" role="toolbar" aria-label="Acciones de la selección">
-                  <span className="thumbnail-selection-count" aria-live="polite">
+                  <span
+                    className="thumbnail-selection-count"
+                    aria-live="polite"
+                    title={`${selectedPages.size} ${selectedPages.size === 1 ? "página seleccionada" : "páginas seleccionadas"}`}
+                  >
                     {selectedPages.size} {selectedPages.size === 1 ? "página seleccionada" : "páginas seleccionadas"}
                   </span>
                   <button
@@ -808,6 +814,7 @@ function PdfViewer({
                     <div className="thumbnail-actions-menu-popover">
                       <button
                         type="button"
+                        title="Extraer selección"
                         onClick={(event) => {
                           void onExtractPages([...selectedPages]);
                           event.currentTarget.closest("details")?.removeAttribute("open");
@@ -818,6 +825,7 @@ function PdfViewer({
                       <button
                         type="button"
                         className="thumbnail-action-danger"
+                        title="Eliminar selección"
                         onClick={(event) => {
                           void onDeletePages([...selectedPages]);
                           event.currentTarget.closest("details")?.removeAttribute("open");
@@ -828,6 +836,7 @@ function PdfViewer({
                       <div className="thumbnail-actions-menu-divider" />
                       <button
                         type="button"
+                        title="Exportar PNG"
                         onClick={(event) => {
                           void onExportPagesAsImages([...selectedPages], "png");
                           event.currentTarget.closest("details")?.removeAttribute("open");
@@ -837,6 +846,7 @@ function PdfViewer({
                       </button>
                       <button
                         type="button"
+                        title="Exportar JPG"
                         onClick={(event) => {
                           void onExportPagesAsImages([...selectedPages], "jpg");
                           event.currentTarget.closest("details")?.removeAttribute("open");

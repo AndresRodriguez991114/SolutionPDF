@@ -715,6 +715,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 
 .thumbnails-header {
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -767,7 +768,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .thumbnail-batch-action:hover { color: #9f3f35; background: #f8e9e6; }
 .thumbnail-batch-action:focus-visible { outline: 2px solid #b8493c; outline-offset: 1px; }
 .thumbnail-actions-menu {
-  position: relative;
   flex: 0 0 28px;
 }
 .thumbnail-actions-menu-trigger {
@@ -792,10 +792,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .thumbnail-actions-menu-popover {
   position: absolute;
   z-index: 10;
-  top: calc(100% + 5px);
-  right: 0;
+  top: calc(100% + 4px);
+  right: 12px;
+  left: 12px;
   display: grid;
-  width: 190px;
+  max-width: 220px;
+  margin-left: auto;
   gap: 2px;
   padding: 5px;
   background: #fff;
@@ -806,6 +808,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .thumbnail-actions-menu-popover button {
   min-height: 30px;
   padding: 5px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #535d59;
   background: transparent;
   border: 0;

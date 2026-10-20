@@ -5,7 +5,7 @@ interface StatusBarProps {
 
 function StatusBar({ fileName, status }: StatusBarProps) {
   return (
-    <footer className="statusbar">
+    <footer className="statusbar" role="status" aria-live="polite">
       <span className="status-left">
         <span className="status-dot" />
         Almacenamiento local

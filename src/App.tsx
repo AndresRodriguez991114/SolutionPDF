@@ -41,12 +41,13 @@ import {
   type PdfCompressionLevel,
 } from "./PDF/pdfUtils";
 import type { PdfTool } from "./components/Toolbar";
-
-interface SavedSignature {
-  id: string;
-  name: string;
-  dataUrl: string;
-}
+import {
+  errorMessage,
+  formatBytes,
+  readPreferences,
+  readRecentFiles,
+  readSavedSignatures,
+} from "./appUtils";
 
 interface EditablePdfSnapshot {
   path: string;
@@ -81,77 +82,6 @@ interface CompressionProgress {
   total: number;
 }
 
-function readRecentFiles(): string[] {
-  try {
-    const stored = localStorage.getItem("solutionpdf.recentFiles");
-    return stored ? JSON.parse(stored) as string[] : [];
-  } catch {
-    return [];
-  }
-}
-
-function errorMessage(error: unknown): string {
-  if (typeof error === "string") return error;
-  if (error instanceof Error) return error.message;
-  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
-    return error.message;
-  }
-  return "Ocurrió un error inesperado.";
-}
-
-function formatBytes(bytes: number): string {
-  return `${(bytes / 1024).toFixed(1)} KB`;
-}
-
-interface AppPreferences {
-  zoom: number;
-  showThumbnails: boolean;
-  documentsPanelCollapsed: boolean;
-  thumbnailsPanelCollapsed: boolean;
-  documentsPanelWidth: number;
-  thumbnailsPanelWidth: number;
-}
-
-const defaultPreferences: AppPreferences = {
-  zoom: 100,
-  showThumbnails: true,
-  documentsPanelCollapsed: false,
-  thumbnailsPanelCollapsed: false,
-  documentsPanelWidth: 258,
-  thumbnailsPanelWidth: 190,
-};
-
-function boundedWidth(value: unknown, fallback: number, minimum: number, maximum: number): number {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Math.min(maximum, Math.max(minimum, value))
-    : fallback;
-}
-
-function readPreferences(): AppPreferences {
-  try {
-    const stored = localStorage.getItem("solutionpdf.preferences");
-    if (!stored) return defaultPreferences;
-    const parsed = JSON.parse(stored) as Partial<AppPreferences>;
-    return {
-      ...defaultPreferences,
-      ...parsed,
-      documentsPanelWidth: boundedWidth(parsed.documentsPanelWidth, defaultPreferences.documentsPanelWidth, 180, 420),
-      thumbnailsPanelWidth: boundedWidth(parsed.thumbnailsPanelWidth, defaultPreferences.thumbnailsPanelWidth, 140, 340),
-    };
-  } catch {
-    return defaultPreferences;
-  }
-}
-
-function readSavedSignatures(): SavedSignature[] {
-  try {
-    const stored = localStorage.getItem("solutionpdf.signatures");
-    return stored ? JSON.parse(stored) as SavedSignature[] : [];
-  } catch {
-    return [];
-  }
-}
-
 function openAnnotationDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open("solutionpdf-editable-pdfs", 1);
@@ -166,6 +96,7 @@ function openAnnotationDatabase(): Promise<IDBDatabase> {
 }
 
 async function readEditableSnapshot(path: string): Promise<EditablePdfSnapshot | null> {
+  if (typeof indexedDB === "undefined") return null;
   const database = await openAnnotationDatabase();
   return new Promise((resolve, reject) => {
     const request = database.transaction("documents", "readonly").objectStore("documents").get(path);
@@ -181,6 +112,7 @@ async function readEditableSnapshot(path: string): Promise<EditablePdfSnapshot |
 }
 
 async function writeEditableSnapshot(snapshot: EditablePdfSnapshot | null, path: string): Promise<void> {
+  if (typeof indexedDB === "undefined") return;
   const database = await openAnnotationDatabase();
   return new Promise((resolve, reject) => {
     const transaction = database.transaction("documents", "readwrite");
@@ -1204,7 +1136,7 @@ function App() {
 
         </div>
 
-        <nav className="menu" ref={menuRef}>
+        <nav className="menu" ref={menuRef} aria-label="Menú principal">
           {(["Archivo", "Editar", "Ver", "Ayuda"] as AppMenu[]).map((item) => {
             const items: Record<AppMenu, [string, string, string][]> = {
               Archivo: [["Abrir PDF", "open", "Ctrl+O"], ["Guardar", "save", "Ctrl+S"], ["Guardar como...", "save-as", "Ctrl+Shift+S"], ["Unir PDF...", "merge", ""], ["Proteger PDF...", "protect", ""], ["Imprimir", "print", "Ctrl+P"], ["Propiedades del archivo", "properties", ""], ["Cerrar documento", "close", ""], ["Salir", "exit", ""]],
@@ -1214,12 +1146,12 @@ function App() {
             };
             return (
               <div className="menu-entry" key={item}>
-                <button aria-haspopup="menu" aria-expanded={menu === item} onClick={() => setMenu((current) => current === item ? null : item)}>{item}</button>
+                <button type="button" aria-haspopup="menu" aria-expanded={menu === item} onClick={() => setMenu((current) => current === item ? null : item)}>{item}</button>
                 {menu === item && <div className="menu-dropdown" role="menu" aria-label={item}>
                   {items[item].map(([label, action, shortcut]) => {
                     const needsDocument = ["save", "save-as", "close", "print", "properties", "edit-page", "rotate-view", "search-pdf", "protect"].includes(action);
                     const disabled = (needsDocument && !pdfFile) || (action === "undo" && !canUndo) || (action === "redo" && !canRedo) || (action === "merge" && mergeProgress !== null) || (action === "protect" && protectionInProgress);
-                    return <button key={action} role="menuitem" disabled={disabled} onClick={() => handleMenuAction(action)}>
+                    return <button type="button" key={action} role="menuitem" disabled={disabled} onClick={() => handleMenuAction(action)}>
                       <span>{label}</span>{shortcut && <kbd>{shortcut}</kbd>}
                     </button>;
                   })}
@@ -1300,6 +1232,7 @@ function App() {
               </p>
 
               <button
+                type="button"
                 className="open-button"
                 onClick={handleOpenPdf}
               >
@@ -1442,8 +1375,8 @@ function App() {
             </div>
             <p className="compression-warning">Las páginas se guardarán como imágenes; el texto dejará de ser seleccionable o buscable. El PDF original no se modifica.</p>
             <div className="dialog-footer">
-              <button onClick={() => setCompressionDialogOpen(false)}>Cancelar</button>
-              <button className="dialog-primary" onClick={() => void handleCompressPdf()}>Comprimir PDF</button>
+              <button type="button" onClick={() => setCompressionDialogOpen(false)}>Cancelar</button>
+              <button type="button" className="dialog-primary" onClick={() => void handleCompressPdf()}>Comprimir PDF</button>
             </div>
           </section>
         </div>
@@ -1455,13 +1388,13 @@ function App() {
             <h2 id="edit-dialog-title">Editar página {currentPage}</h2>
             <p>Los cambios se aplican al PDF y se pueden deshacer.</p>
             <div className="edit-actions">
-              <button onClick={() => runPageAction("rotate-left")}><RotateCcw size={17} /> Rotar a la izquierda</button>
-              <button onClick={() => runPageAction("rotate-right")}><RotateCw size={17} /> Rotar a la derecha</button>
-              <button onClick={() => runPageAction("move-up")} disabled={currentPage <= 1}><ArrowUp size={17} /> Mover hacia arriba</button>
-              <button onClick={() => runPageAction("move-down")} disabled={currentPage >= pageCount}><ArrowDown size={17} /> Mover hacia abajo</button>
-              <button className="dialog-danger" onClick={() => runPageAction("delete")}><Trash2 size={17} /> Eliminar página</button>
+              <button type="button" onClick={() => runPageAction("rotate-left")}><RotateCcw size={17} /> Rotar a la izquierda</button>
+              <button type="button" onClick={() => runPageAction("rotate-right")}><RotateCw size={17} /> Rotar a la derecha</button>
+              <button type="button" onClick={() => runPageAction("move-up")} disabled={currentPage <= 1}><ArrowUp size={17} /> Mover hacia arriba</button>
+              <button type="button" onClick={() => runPageAction("move-down")} disabled={currentPage >= pageCount}><ArrowDown size={17} /> Mover hacia abajo</button>
+              <button type="button" className="dialog-danger" onClick={() => runPageAction("delete")}><Trash2 size={17} /> Eliminar página</button>
             </div>
-            <div className="dialog-footer"><span>Página {currentPage} de {pageCount}</span><button onClick={() => setEditDialogOpen(false)}>Cerrar</button></div>
+            <div className="dialog-footer"><span>Página {currentPage} de {pageCount}</span><button type="button" onClick={() => setEditDialogOpen(false)}>Cerrar</button></div>
           </section>
         </div>
       )}
@@ -1479,7 +1412,7 @@ function App() {
               onKeyDown={(event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) void handleAddText(); }}
               placeholder="Escribe el texto"
             />
-            <div className="dialog-footer"><span>Ctrl+Enter para insertar</span><button onClick={() => setTextTarget(null)}>Cancelar</button><button className="dialog-primary" onClick={() => void handleAddText()} disabled={!textInput.trim()}>Agregar</button></div>
+            <div className="dialog-footer"><span>Ctrl+Enter para insertar</span><button type="button" onClick={() => setTextTarget(null)}>Cancelar</button><button type="button" className="dialog-primary" onClick={() => void handleAddText()} disabled={!textInput.trim()}>Agregar</button></div>
           </section>
         </div>
       )}
@@ -1492,11 +1425,11 @@ function App() {
             {savedSignatures.length > 0 && <div className="saved-signatures">
               {savedSignatures.map((signature) => (
                 <div className="saved-signature" key={signature.id}>
-                  <button className="signature-choice" onClick={() => chooseSignature(signature.dataUrl)} title={`Usar ${signature.name}`}>
+                  <button type="button" className="signature-choice" onClick={() => chooseSignature(signature.dataUrl)} title={`Usar ${signature.name}`}>
                     <img src={signature.dataUrl} alt="" />
                     <span>{signature.name}</span>
                   </button>
-                  <button className="signature-delete" aria-label={`Eliminar ${signature.name}`} title="Eliminar firma" onClick={() => {
+                  <button type="button" className="signature-delete" aria-label={`Eliminar ${signature.name}`} title="Eliminar firma" onClick={() => {
                     const signatures = savedSignatures.filter((item) => item.id !== signature.id);
                     setSavedSignatures(signatures);
                     localStorage.setItem("solutionpdf.signatures", JSON.stringify(signatures));
@@ -1537,7 +1470,7 @@ function App() {
               onPointerUp={() => { signatureDrawingRef.current = false; }}
               onPointerCancel={() => { signatureDrawingRef.current = false; }}
             />
-            <div className="dialog-footer"><button onClick={clearSignatureCanvas}><Eraser size={15} /> Limpiar</button><span /><button onClick={() => setSignatureDialogOpen(false)}>Cancelar</button><button className="dialog-primary" onClick={saveSignature}><Check size={15} /> Guardar y usar</button></div>
+            <div className="dialog-footer"><button type="button" onClick={clearSignatureCanvas}><Eraser size={15} /> Limpiar</button><span /><button type="button" onClick={() => setSignatureDialogOpen(false)}>Cancelar</button><button type="button" className="dialog-primary" onClick={saveSignature}><Check size={15} /> Guardar y usar</button></div>
           </section>
         </div>
       )}
@@ -1548,9 +1481,9 @@ function App() {
             <h2 id="close-confirmation-title">¿Guardar los cambios?</h2>
             <p>Hay cambios sin guardar en {fileName ? `“${fileName}”` : "el documento"}.</p>
             <div className="dialog-footer">
-              <button onClick={() => setCloseConfirmationOpen(false)}>Cancelar</button>
-              <button onClick={() => void finishWindowClose()}>Descartar</button>
-              <button className="dialog-primary" onClick={() => void handleSave().then(async (saved) => { if (saved) await finishWindowClose(); })}>Guardar</button>
+              <button type="button" onClick={() => setCloseConfirmationOpen(false)}>Cancelar</button>
+              <button type="button" onClick={() => void finishWindowClose()}>Descartar</button>
+              <button type="button" className="dialog-primary" onClick={() => void handleSave().then(async (saved) => { if (saved) await finishWindowClose(); })}>Guardar</button>
             </div>
           </section>
         </div>
@@ -1652,7 +1585,7 @@ function App() {
       )}
       {dialog && (
         <div className="dialog-backdrop notice-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialog(null); }}>
-          <section className="app-dialog notice-dialog" role="dialog" aria-modal="true" aria-labelledby="notice-title">
+          <section className="app-dialog notice-dialog" role="alertdialog" aria-modal="true" aria-labelledby="notice-title" aria-describedby="notice-message">
             <div className="notice-heading">
               <span className="notice-icon"><Info size={21} strokeWidth={2} /></span>
               <div className="notice-heading-copy">
@@ -1660,8 +1593,8 @@ function App() {
                 <h2 id="notice-title">{dialog.title}</h2>
               </div>
             </div>
-            <p className="dialog-message">{dialog.body}</p>
-            <div className="dialog-footer"><span /><button className="dialog-primary" onClick={() => setDialog(null)}>Aceptar</button></div>
+            <p id="notice-message" className="dialog-message">{dialog.body}</p>
+            <div className="dialog-footer"><span /><button type="button" className="dialog-primary" onClick={() => setDialog(null)}>Aceptar</button></div>
           </section>
         </div>
       )}
@@ -1673,7 +1606,7 @@ function App() {
           <section className="app-dialog" role="dialog" aria-modal="true" aria-labelledby="properties-title">
             <h2 id="properties-title">{properties.title}</h2>
             <p className="dialog-message">{properties.body}</p>
-            <div className="dialog-footer"><span /><button className="dialog-primary" onClick={() => setProperties(null)}>Cerrar</button></div>
+            <div className="dialog-footer"><span /><button type="button" className="dialog-primary" onClick={() => setProperties(null)}>Cerrar</button></div>
           </section>
         </div>
       )}
@@ -1692,7 +1625,7 @@ function App() {
               <input type="checkbox" checked={showThumbnails} onChange={(event) => updatePreferences({ showThumbnails: event.target.checked })} />
               Mostrar miniaturas al abrir un documento
             </label>
-            <div className="dialog-footer"><span>Se guarda en este dispositivo.</span><button className="dialog-primary" onClick={() => setPreferencesOpen(false)}>Listo</button></div>
+            <div className="dialog-footer"><span>Se guarda en este dispositivo.</span><button type="button" className="dialog-primary" onClick={() => setPreferencesOpen(false)}>Listo</button></div>
           </section>
         </div>
       )}

@@ -18,6 +18,10 @@ html, body, #root {
 }
 body { margin: 0; min-width: 540px; }
 button { font: inherit; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid #b8493c;
+  outline-offset: 2px;
+}
 
 .app {
   display: flex;

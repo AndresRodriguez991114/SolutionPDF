@@ -40,8 +40,9 @@ function Toolbar({
   hasDocument,
 }: ToolbarProps) {
   return (
-    <div className="toolbar">
+    <div className="toolbar" role="toolbar" aria-label="Herramientas del documento">
       <button
+        type="button"
         className="tool-button primary"
         onClick={onOpenPdf}
       >
@@ -50,6 +51,7 @@ function Toolbar({
       </button>
 
       <button
+        type="button"
         className="tool-button"
         onClick={onEditPdf}
         disabled={!hasDocument}
@@ -60,6 +62,7 @@ function Toolbar({
       </button>
 
       <button
+        type="button"
         className={`tool-button ${activeTool === "text" ? "active" : ""}`}
         onClick={() => onToolChange(activeTool === "text" ? null : "text")}
         disabled={!hasDocument}
@@ -70,6 +73,7 @@ function Toolbar({
       </button>
 
       <button
+        type="button"
         className={`tool-button ${activeTool === "signature" ? "active" : ""}`}
         onClick={onSign}
         disabled={!hasDocument}
@@ -80,6 +84,7 @@ function Toolbar({
       </button>
 
       <button
+        type="button"
         className={`tool-button ${activeTool === "highlight" ? "active" : ""}`}
         onClick={() => onToolChange(activeTool === "highlight" ? null : "highlight")}
         disabled={!hasDocument}
@@ -90,6 +95,7 @@ function Toolbar({
       </button>
 
       <button
+        type="button"
         className="tool-button"
         onClick={onMergePdf}
         disabled={mergeInProgress}
@@ -100,6 +106,7 @@ function Toolbar({
       </button>
 
       <button
+        type="button"
         className="tool-button"
         onClick={onOptimizePdf}
         disabled={!hasDocument}
@@ -110,6 +117,7 @@ function Toolbar({
       </button>
 
       <button
+        type="button"
         className="tool-button"
         onClick={onPrint}
         disabled={!hasDocument}
@@ -122,6 +130,7 @@ function Toolbar({
       <div className="toolbar-spacer" />
 
       <button
+        type="button"
         className="update-button"
         onClick={onCheckUpdates}
         title="Información de actualizaciones"

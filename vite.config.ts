@@ -1,6 +1,7 @@
 // @ts-expect-error type error without @types/node package
 import path from "node:path";
-import { defineConfig, normalizePath } from "vite";
+import { defineConfig } from "vitest/config";
+import { normalizePath } from "vite";
 import react from "@vitejs/plugin-react";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 // @ts-expect-error type error without @types/node package
@@ -19,6 +20,9 @@ export default defineConfig(() => ({
       ],
     }),
   ],
+  test: {
+    environment: "jsdom",
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

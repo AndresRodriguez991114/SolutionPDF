@@ -45,6 +45,7 @@ function PagesPanel({
 
   return (
     <aside
+      aria-label="Documentos locales"
       className={`pages-panel ${collapsed ? "collapsed" : ""}`}
       style={{ width: collapsed ? 40 : width, flexBasis: collapsed ? 40 : width }}
     >
@@ -66,6 +67,7 @@ function PagesPanel({
 
         <div className="panel-heading-actions">
           <button
+            type="button"
             className="search-button"
             aria-label="Buscar documentos"
             title="Buscar documentos"
@@ -100,6 +102,7 @@ function PagesPanel({
         const name = path.split(/[\\/]/).pop() || path;
         return (
           <button
+            type="button"
             key={path}
             className={`document-row ${name === fileName ? "active" : ""}`}
             title={path}
@@ -112,6 +115,7 @@ function PagesPanel({
         );
       }) : (
         <button
+          type="button"
           className="document-row"
           onClick={onOpenPdf}
         >
@@ -147,6 +151,7 @@ function PagesPanel({
 
       {fileName && (
         <button
+          type="button"
           className="open-another"
           onClick={onOpenPdf}
         >

@@ -1,6 +1,6 @@
 import { PDFDocument } from "pdf-lib";
 import { useEffect } from "react";
-import { fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   relaunch: vi.fn(),
   close: vi.fn(),
   onCloseRequested: vi.fn(),
+  onDragDropEvent: vi.fn(),
   convertFileSrc: vi.fn((path: string) => path),
 }));
 
@@ -40,6 +41,7 @@ vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     close: mocks.close,
     onCloseRequested: mocks.onCloseRequested,
+    onDragDropEvent: mocks.onDragDropEvent,
   }),
 }));
 
@@ -91,6 +93,7 @@ function configureNativeMocks(bytes: Uint8Array) {
   mocks.getVersion.mockResolvedValue("0.2.6");
   mocks.close.mockResolvedValue(undefined);
   mocks.onCloseRequested.mockResolvedValue(() => undefined);
+  mocks.onDragDropEvent.mockResolvedValue(() => undefined);
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: true,
     arrayBuffer: async () => bytes.buffer,
@@ -125,6 +128,37 @@ describe("App document flows", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("pdf-viewer")).toBeNull();
     });
+  });
+
+  it("opens a PDF dropped into the application window", async () => {
+    render(<App />);
+    await waitFor(() => expect(mocks.onDragDropEvent).toHaveBeenCalled());
+
+    const handler = mocks.onDragDropEvent.mock.calls[0][0] as (event: {
+      payload: { type: string; paths: string[] };
+    }) => void;
+    act(() => handler({ payload: { type: "enter", paths: ["C:\\documentos\\informe.pdf"] } }));
+    expect(screen.getByText("Suelta un PDF para abrirlo")).toBeTruthy();
+    act(() => handler({ payload: { type: "drop", paths: ["C:\\documentos\\informe.pdf"] } }));
+
+    expect(await screen.findByTestId("pdf-viewer")).toBeTruthy();
+    expect(screen.getByText("informe.pdf")).toBeTruthy();
+  });
+
+  it("rejects non-PDF and multiple dropped files", async () => {
+    render(<App />);
+    await waitFor(() => expect(mocks.onDragDropEvent).toHaveBeenCalled());
+
+    const handler = mocks.onDragDropEvent.mock.calls[0][0] as (event: {
+      payload: { type: string; paths: string[] };
+    }) => void;
+    act(() => handler({ payload: { type: "drop", paths: ["C:\\documentos\\imagen.png"] } }));
+    expect(await screen.findByText("Formato no compatible")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar" }));
+    act(() => handler({ payload: { type: "drop", paths: ["C:\\documentos\\uno.pdf", "C:\\documentos\\dos.pdf"] } }));
+    expect(await screen.findByText("Suelta un solo archivo PDF a la vez.")).toBeTruthy();
+    expect(mocks.convertFileSrc).not.toHaveBeenCalledWith("C:\\documentos\\uno.pdf");
   });
 
   it("saves a copy through Guardar como", async () => {

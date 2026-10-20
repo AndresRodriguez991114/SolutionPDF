@@ -7,6 +7,7 @@ prioriza el procesamiento local de los archivos.
 ## Funciones actuales
 
 - Abrir PDFs locales y consultar archivos recientes.
+- Abrir un PDF arrastrándolo a la ventana.
 - Navegar por páginas con miniaturas, zoom y búsqueda de texto.
 - Rotar, mover y eliminar páginas.
 - Editar o agregar texto, resaltar contenido y colocar firmas.

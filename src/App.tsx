@@ -206,6 +206,7 @@ function App() {
     thumbnailsPanelWidth,
   } = preferences;
   const [readingMode, setReadingMode] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
   const [searchRequest, setSearchRequest] = useState(0);
   const [pdfSearchRequest, setPdfSearchRequest] = useState(0);
   const [status, setStatus] = useState("Listo");
@@ -1046,6 +1047,43 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+
+    void getCurrentWindow().onDragDropEvent((event) => {
+      const { payload } = event;
+      if (payload.type === "enter") {
+        setDropActive(true);
+      } else if (payload.type === "leave") {
+        setDropActive(false);
+      } else if (payload.type === "drop") {
+        setDropActive(false);
+        if (payload.paths.length !== 1) {
+          notify("No se pudieron abrir los archivos", "Suelta un solo archivo PDF a la vez.");
+        } else if (!payload.paths[0].toLowerCase().endsWith(".pdf")) {
+          notify("Formato no compatible", "Solo puedes abrir archivos PDF.");
+        } else {
+          void loadDocument(payload.paths[0]);
+        }
+      }
+    }).then((stopListening) => {
+      if (!active) {
+        stopListening();
+        return;
+      }
+      unlisten = stopListening;
+    }).catch((error: unknown) => {
+      if (active) notify("No se pudo activar arrastrar y soltar", errorMessage(error));
+    });
+
+    return () => {
+      active = false;
+      setDropActive(false);
+      unlisten?.();
+    };
+  }, [dirty]);
+
+  useEffect(() => {
     function handleOutsideClick(event: PointerEvent) {
       if (menu && !menuRef.current?.contains(event.target as Node)) setMenu(null);
     }
@@ -1627,6 +1665,13 @@ function App() {
             </label>
             <div className="dialog-footer"><span>Se guarda en este dispositivo.</span><button type="button" className="dialog-primary" onClick={() => setPreferencesOpen(false)}>Listo</button></div>
           </section>
+        </div>
+      )}
+
+      {dropActive && (
+        <div className="file-drop-overlay" role="status" aria-live="polite">
+          <FileText size={38} aria-hidden="true" />
+          <span>Suelta un PDF para abrirlo</span>
         </div>
       )}
 

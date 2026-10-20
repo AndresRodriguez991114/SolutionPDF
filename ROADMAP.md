@@ -24,7 +24,7 @@ cuando esté terminado.
 
 ## Fase 2: Flujo de trabajo con páginas
 
-- [ ] Añadir arrastrar y soltar PDFs dentro de la ventana.
+- [x] Añadir arrastrar y soltar PDFs dentro de la ventana.
 - [ ] Permitir seleccionar varias miniaturas a la vez.
 - [ ] Rotar varias páginas en una sola operación.
 - [ ] Eliminar varias páginas en una sola operación.
@@ -138,7 +138,7 @@ cuando esté terminado.
 Para empezar con entregas de alto impacto, se recomienda este orden:
 
 - [ ] Actualizar documentación y añadir pruebas base.
-- [ ] Añadir arrastrar y soltar.
+- [x] Añadir arrastrar y soltar.
 - [ ] Añadir selección múltiple y extracción de páginas.
 - [ ] Añadir guardado automático y recuperación.
 - [ ] Añadir pestañas.

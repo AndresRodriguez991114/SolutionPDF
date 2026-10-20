@@ -718,20 +718,120 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   padding: 0 4px;
   font-size: 13px;
   font-weight: 600;
   color: #555;
 }
 .thumbnails-header .search-button { width: 26px; height: 26px; }
+.thumbnails-header-actions { gap: 5px; }
+.thumbnail-selection-toolbar {
+  position: sticky;
+  z-index: 5;
+  top: -12px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 40px;
+  margin: 0 -12px 10px;
+  padding: 5px 12px;
+  background: #fff;
+  border-top: 1px solid #e7e9e6;
+  border-bottom: 1px solid #dfe3df;
+  box-shadow: 0 2px 5px rgba(35, 45, 40, .06);
+}
+.thumbnail-selection-count {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: #4d6257;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thumbnail-batch-action {
+  display: grid;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  color: #596563;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.thumbnail-batch-action:hover { color: #9f3f35; background: #f8e9e6; }
+.thumbnail-batch-action:focus-visible { outline: 2px solid #b8493c; outline-offset: 1px; }
+.thumbnail-actions-menu {
+  position: relative;
+  flex: 0 0 28px;
+}
+.thumbnail-actions-menu-trigger {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: #596563;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  list-style: none;
+}
+.thumbnail-actions-menu-trigger::-webkit-details-marker { display: none; }
+.thumbnail-actions-menu-trigger:hover,
+.thumbnail-actions-menu[open] > .thumbnail-actions-menu-trigger {
+  color: #963d33;
+  background: #f8e9e6;
+}
+.thumbnail-actions-menu-trigger:focus-visible { outline: 2px solid #b8493c; outline-offset: 1px; }
+.thumbnail-actions-menu-popover {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 5px);
+  right: 0;
+  display: grid;
+  width: 190px;
+  gap: 2px;
+  padding: 5px;
+  background: #fff;
+  border: 1px solid #dfe3df;
+  border-radius: 7px;
+  box-shadow: 0 5px 16px rgba(32, 42, 39, .16);
+}
+.thumbnail-actions-menu-popover button {
+  min-height: 30px;
+  padding: 5px 8px;
+  color: #535d59;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.thumbnail-actions-menu-popover button:hover {
+  color: #963d33;
+  background: #fbf2f0;
+}
+.thumbnail-actions-menu-popover button:focus-visible {
+  outline: 2px solid #b8493c;
+  outline-offset: 1px;
+}
+.thumbnail-actions-menu-popover button.thumbnail-action-danger { color: #a33f35; }
+.thumbnail-actions-menu-divider { height: 1px; margin: 2px 4px; background: #e6e8e5; }
 
 .thumbnails-list {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 0;
 }
+.thumbnail-virtual-spacer { width: 1px; flex: 0 0 auto; }
 
 /* MINIATURA */
 
@@ -762,10 +862,23 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   background: #f8e9e6;
 }
 
+.pdf-thumbnail.selected:not(.active) {
+  border-color: #718f81;
+  background: #eaf0ec;
+}
+
+.pdf-thumbnail.selected.active {
+  box-shadow: inset 0 0 0 1px #718f81;
+}
+
 .thumbnail-item {
   position: relative;
   width: 150px;
+  height: 202px;
+  flex: 0 0 202px;
+  margin-bottom: 12px;
 }
+.pdf-thumbnail { height: 202px; }
 
 .thumbnail-menu-trigger {
   position: absolute;
@@ -863,13 +976,25 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 .thumbnail-page {
   display: flex;
+  width: 140px;
+  height: 170px;
+  align-items: center;
   justify-content: center;
+  overflow: hidden;
   background: white;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
 
 .thumbnail-page .react-pdf__Page {
-  max-width: 140px;
+  max-width: 130px;
+  max-height: 170px;
+}
+
+.thumbnail-cached-image {
+  display: block;
+  max-width: 130px;
+  max-height: 170px;
+  object-fit: contain;
 }
 
 .thumbnail-number {

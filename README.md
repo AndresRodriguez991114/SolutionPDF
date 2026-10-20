@@ -9,7 +9,13 @@ prioriza el procesamiento local de los archivos.
 - Abrir PDFs locales y consultar archivos recientes.
 - Abrir un PDF arrastrándolo a la ventana.
 - Navegar por páginas con miniaturas, zoom y búsqueda de texto.
+- Seleccionar varias páginas con Ctrl/Cmd + clic o rangos con Mayús + clic.
 - Rotar, mover y eliminar páginas.
+- Rotar varias páginas seleccionadas en una sola operación.
+- Eliminar páginas seleccionadas y extraerlas a un PDF nuevo.
+- Dividir documentos por rangos o guardar un PDF por cada página.
+- Reordenar grupos de páginas y exportarlas como PNG o JPG.
+- Navegar miniaturas con renderizado virtualizado y caché local.
 - Editar o agregar texto, resaltar contenido y colocar firmas.
 - Unir, comprimir y proteger documentos con contraseña.
 - Guardar, guardar como e imprimir.

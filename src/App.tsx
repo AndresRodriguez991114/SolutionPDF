@@ -32,12 +32,22 @@ import StatusBar from "./components/StatusBar";
 import {
   applyAnnotationsToPdf,
   applyPageAction,
+  deletePages,
+  exportPagesAsImages,
+  extractPages,
   mergePdfs,
+  movePagesTo,
   movePageTo,
+  parsePageRanges,
+  rotatePages,
+  splitPdfByRanges,
+  splitPdfIntoPages,
   compressPdf,
   type PdfAnnotation,
   type NormalizedRect,
   type PageAction,
+  type PageImageFormat,
+  type RotationDirection,
   type PdfCompressionLevel,
 } from "./PDF/pdfUtils";
 import type { PdfTool } from "./components/Toolbar";
@@ -184,6 +194,9 @@ function App() {
   const [compressionLevel, setCompressionLevel] = useState<PdfCompressionLevel>("recommended");
   const [compressionProgress, setCompressionProgress] = useState<CompressionProgress | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [splitDialogOpen, setSplitDialogOpen] = useState(false);
+  const [splitRanges, setSplitRanges] = useState("");
+  const [splitError, setSplitError] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<PdfTool>(null);
   const [textTarget, setTextTarget] = useState<{ pageNumber: number; x: number; y: number; rectangles?: NormalizedRect[]; annotationId?: string; selectedText?: string } | null>(null);
   const [textInput, setTextInput] = useState("");
@@ -624,6 +637,165 @@ function App() {
       else if (action === "move-down") setCurrentPage(Math.min(pageCount, pageNumber + 1));
     } catch (error) {
       notify("No se pudo modificar la página", errorMessage(error));
+    }
+  }
+
+  async function handleRotatePages(pageNumbers: number[], direction: RotationDirection) {
+    const current = pdfBytesRef.current;
+    if (!current) return;
+    try {
+      const withAnnotations = await applyAnnotationsToPdf(current, annotations);
+      const updated = await rotatePages(withAnnotations, pageNumbers, direction);
+      setAnnotations([]);
+      setSelectedAnnotationId(null);
+      annotationUndoStack.current = [];
+      annotationRedoStack.current = [];
+      commitPdfBytes(updated, withAnnotations);
+    } catch (error) {
+      notify("No se pudieron rotar las páginas", errorMessage(error));
+    }
+  }
+
+  function exportFileStem() {
+    const stem = (fileName || "documento")
+      .replace(/\.pdf$/i, "")
+      .replace(/[<>:"/\\|?*\x00-\x1f]/g, "-")
+      .replace(/[. ]+$/g, "")
+      .trim();
+    return stem || "documento";
+  }
+
+  async function savePageExportFiles(
+    files: Array<{ name: string; bytes: Uint8Array }>,
+    title: string
+  ): Promise<boolean> {
+    if (files.length === 0) return false;
+    try {
+      const directory = await open({ directory: true, multiple: false, title });
+      if (typeof directory !== "string") return false;
+      const paths = await invoke<string[]>("save_page_exports", {
+        directory,
+        files: files.map(({ name, bytes }) => ({ name, bytes: Array.from(bytes) })),
+      });
+      setStatus(`Exportados ${paths.length} archivos`);
+      notify("Exportación completada", `Se guardaron ${paths.length} archivos en:\n${directory}`);
+      return true;
+    } catch (error) {
+      notify("No se pudieron guardar los archivos exportados", errorMessage(error));
+      return false;
+    }
+  }
+
+  async function handleDeletePages(pageNumbers: number[]) {
+    const current = pdfBytesRef.current;
+    if (!current) return;
+    const pages = [...new Set(pageNumbers)].sort((left, right) => left - right);
+    if (!pages.length) return;
+    try {
+      const withAnnotations = await applyAnnotationsToPdf(current, annotations);
+      const pageCountBefore = (await PDFDocument.load(withAnnotations)).getPageCount();
+      if (pages.length >= pageCountBefore) {
+        notify("No se pueden eliminar las páginas", "El PDF debe conservar al menos una página.");
+        return;
+      }
+      if (!await confirm(`¿Eliminar las ${pages.length} páginas seleccionadas? Esta acción se puede deshacer.`)) return;
+      const updated = await deletePages(withAnnotations, pages);
+      setAnnotations([]);
+      setSelectedAnnotationId(null);
+      annotationUndoStack.current = [];
+      annotationRedoStack.current = [];
+      commitPdfBytes(updated, withAnnotations);
+      setPageCount(Math.max(1, pageCountBefore - pages.length));
+      setCurrentPage((page) => Math.max(1, Math.min(page, pageCountBefore - pages.length)));
+    } catch (error) {
+      notify("No se pudieron eliminar las páginas", errorMessage(error));
+    }
+  }
+
+  async function handleExtractPages(pageNumbers: number[]) {
+    const current = pdfBytesRef.current;
+    if (!current) return;
+    try {
+      const withAnnotations = await applyAnnotationsToPdf(current, annotations);
+      const extracted = await extractPages(withAnnotations, pageNumbers);
+      const path = await saveCopy(extracted, `${exportFileStem()}-paginas-seleccionadas.pdf`);
+      if (path) notify("Páginas extraídas", `Se guardó una copia con ${pageNumbers.length} páginas en:\n${path}`);
+    } catch (error) {
+      notify("No se pudieron extraer las páginas", errorMessage(error));
+    }
+  }
+
+  async function handleSplitRanges(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const current = pdfBytesRef.current;
+    if (!current) return;
+    setSplitError(null);
+    try {
+      const ranges = parsePageRanges(splitRanges, pageCount);
+      const withAnnotations = await applyAnnotationsToPdf(current, annotations);
+      const parts = await splitPdfByRanges(withAnnotations, ranges);
+      const files = parts.map((bytes, index) => {
+        const { start, end } = ranges[index];
+        return {
+          name: `${exportFileStem()}-paginas-${start}${end === start ? "" : `-${end}`}.pdf`,
+          bytes,
+        };
+      });
+      if (await savePageExportFiles(files, "Elige la carpeta para guardar los PDF divididos")) {
+        setSplitDialogOpen(false);
+      }
+    } catch (error) {
+      setSplitError(errorMessage(error));
+    }
+  }
+
+  async function handleExportEachPage() {
+    const current = pdfBytesRef.current;
+    if (!current) return;
+    try {
+      const withAnnotations = await applyAnnotationsToPdf(current, annotations);
+      const pages = await splitPdfIntoPages(withAnnotations);
+      const files = pages.map((bytes, index) => ({
+        name: `${exportFileStem()}-pagina-${index + 1}.pdf`,
+        bytes,
+      }));
+      await savePageExportFiles(files, "Elige la carpeta para guardar un PDF por página");
+    } catch (error) {
+      notify("No se pudo crear un PDF por página", errorMessage(error));
+    }
+  }
+
+  async function handleExportPagesAsImages(pageNumbers: number[], format: PageImageFormat) {
+    const current = pdfBytesRef.current;
+    if (!current) return;
+    try {
+      const withAnnotations = await applyAnnotationsToPdf(current, annotations);
+      const images = await exportPagesAsImages(withAnnotations, pageNumbers, format);
+      const files = images.map(({ pageNumber, bytes }) => ({
+        name: `${exportFileStem()}-pagina-${pageNumber}.${format}`,
+        bytes,
+      }));
+      await savePageExportFiles(files, `Elige la carpeta para guardar las imágenes ${format.toUpperCase()}`);
+    } catch (error) {
+      notify("No se pudieron exportar las páginas como imágenes", errorMessage(error));
+    }
+  }
+
+  async function handleMovePages(pageNumbers: number[], targetPageNumber: number) {
+    const current = pdfBytesRef.current;
+    if (!current) return;
+    try {
+      const withAnnotations = await applyAnnotationsToPdf(current, annotations);
+      const updated = await movePagesTo(withAnnotations, pageNumbers, targetPageNumber);
+      if (updated === withAnnotations) return;
+      setAnnotations([]);
+      setSelectedAnnotationId(null);
+      annotationUndoStack.current = [];
+      annotationRedoStack.current = [];
+      commitPdfBytes(updated, withAnnotations);
+      setCurrentPage(targetPageNumber);
+    } catch (error) {
+      notify("No se pudieron mover las páginas", errorMessage(error));
     }
   }
 
@@ -1300,6 +1472,17 @@ function App() {
               onCurrentPageChange={setCurrentPage}
               onPageCountChange={setPageCount}
               onPageAction={handlePageAction}
+              onRotatePages={handleRotatePages}
+              onDeletePages={handleDeletePages}
+              onExtractPages={handleExtractPages}
+              onMovePages={handleMovePages}
+              onExportPagesAsImages={handleExportPagesAsImages}
+              onSplitRanges={() => {
+                setSplitRanges("");
+                setSplitError(null);
+                setSplitDialogOpen(true);
+              }}
+              onExportEachPage={handleExportEachPage}
               onMovePage={handleMovePage}
               zoom={zoom}
               onZoomChange={(nextZoom) => updatePreferences({ zoom: nextZoom })}
@@ -1417,6 +1600,36 @@ function App() {
               <button type="button" className="dialog-primary" onClick={() => void handleCompressPdf()}>Comprimir PDF</button>
             </div>
           </section>
+        </div>
+      )}
+
+      {splitDialogOpen && (
+        <div className="dialog-backdrop" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setSplitDialogOpen(false);
+        }}>
+          <form className="app-dialog" role="dialog" aria-modal="true" aria-labelledby="split-ranges-title" onSubmit={(event) => void handleSplitRanges(event)}>
+            <h2 id="split-ranges-title">Dividir PDF por rangos</h2>
+            <p>Indica qué páginas incluir en cada archivo. Se creará un PDF nuevo por rango; el original no se modifica.</p>
+            <label className="signature-label" htmlFor="split-ranges-input">Rangos de páginas</label>
+            <input
+              id="split-ranges-input"
+              className="password-input"
+              value={splitRanges}
+              onChange={(event) => {
+                setSplitRanges(event.target.value);
+                setSplitError(null);
+              }}
+              placeholder="Ejemplo: 1-3, 5, 7-9"
+              aria-describedby="split-ranges-help"
+              autoFocus
+            />
+            <p id="split-ranges-help">Este documento tiene {pageCount} páginas. Los rangos no deben solaparse.</p>
+            {splitError && <p className="password-error" role="alert">{splitError}</p>}
+            <div className="dialog-footer">
+              <button type="button" onClick={() => setSplitDialogOpen(false)}>Cancelar</button>
+              <button type="submit" className="dialog-primary" disabled={!splitRanges.trim()}>Dividir y guardar</button>
+            </div>
+          </form>
         </div>
       )}
 

@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   onCloseRequested: vi.fn(),
   onDragDropEvent: vi.fn(),
   convertFileSrc: vi.fn((path: string) => path),
+  pageCount: 1,
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({
@@ -58,18 +59,30 @@ vi.mock("./PDF/PdfViewer", () => ({
     onPageCountChange,
     onPageClick,
     onHighlightSelection,
+    onDeletePages,
+    onExtractPages,
+    onExportEachPage,
+    onSplitRanges,
   }: {
     onPageCountChange?: (count: number) => void;
     onPageClick?: (page: number, x: number, y: number) => void;
     onHighlightSelection?: (page: number, rectangles: Array<{ x: number; y: number; width: number; height: number }>) => void;
+    onDeletePages?: (pages: number[]) => void;
+    onExtractPages?: (pages: number[]) => void;
+    onExportEachPage?: () => void;
+    onSplitRanges?: () => void;
   }) => {
     useEffect(() => {
-      onPageCountChange?.(1);
+      onPageCountChange?.(mocks.pageCount);
     }, [onPageCountChange]);
     return (
       <div data-testid="pdf-viewer">
         <button type="button" onClick={() => onPageClick?.(1, 0.1, 0.1)}>Agregar texto</button>
         <button type="button" onClick={() => onHighlightSelection?.(1, [{ x: 0.1, y: 0.2, width: 0.2, height: 0.05 }])}>Resaltar selección</button>
+        <button type="button" onClick={() => onDeletePages?.([2, 3])}>Eliminar páginas de prueba</button>
+        <button type="button" onClick={() => onExtractPages?.([3, 1])}>Extraer páginas de prueba</button>
+        <button type="button" onClick={() => onExportEachPage?.()}>Un PDF por página de prueba</button>
+        <button type="button" onClick={() => onSplitRanges?.()}>Dividir por rangos de prueba</button>
       </div>
     );
   },
@@ -77,20 +90,21 @@ vi.mock("./PDF/PdfViewer", () => ({
 
 import App from "./App";
 
-async function createPdfBytes(): Promise<Uint8Array> {
+async function createPdfBytes(pageCount = 1): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
-  pdf.addPage([300, 400]);
+  for (let page = 0; page < pageCount; page += 1) pdf.addPage([300 + page, 400]);
   return pdf.save();
 }
 
-function configureNativeMocks(bytes: Uint8Array) {
+function configureNativeMocks(bytes: Uint8Array, pageCount = 1) {
+  mocks.pageCount = pageCount;
   mocks.open.mockResolvedValue("C:\\documentos\\informe.pdf");
   mocks.save.mockResolvedValue("C:\\documentos\\informe-copia.pdf");
   mocks.confirm.mockResolvedValue(true);
   mocks.invoke.mockResolvedValue([]);
   mocks.listen.mockResolvedValue(() => undefined);
   mocks.check.mockResolvedValue(null);
-  mocks.getVersion.mockResolvedValue("0.2.6");
+  mocks.getVersion.mockResolvedValue("0.2.8");
   mocks.close.mockResolvedValue(undefined);
   mocks.onCloseRequested.mockResolvedValue(() => undefined);
   mocks.onDragDropEvent.mockResolvedValue(() => undefined);
@@ -159,6 +173,74 @@ describe("App document flows", () => {
     act(() => handler({ payload: { type: "drop", paths: ["C:\\documentos\\uno.pdf", "C:\\documentos\\dos.pdf"] } }));
     expect(await screen.findByText("Suelta un solo archivo PDF a la vez.")).toBeTruthy();
     expect(mocks.convertFileSrc).not.toHaveBeenCalledWith("C:\\documentos\\uno.pdf");
+  });
+
+  it("deletes selected pages after one confirmation and keeps a page", async () => {
+    configureNativeMocks(await createPdfBytes(3), 3);
+    render(<App />);
+    clickOpenPdf();
+    await screen.findByTestId("pdf-viewer");
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar páginas de prueba" }));
+
+    await waitFor(() => expect(mocks.confirm).toHaveBeenCalledWith(
+      "¿Eliminar las 2 páginas seleccionadas? Esta acción se puede deshacer."
+    ));
+    expect(await screen.findByTestId("pdf-viewer")).toBeTruthy();
+    expect(screen.getByText(/Cambios sin guardar/)).toBeTruthy();
+  });
+
+  it("extracts selected pages into a separate PDF without replacing the open one", async () => {
+    configureNativeMocks(await createPdfBytes(3), 3);
+    render(<App />);
+    clickOpenPdf();
+    await screen.findByTestId("pdf-viewer");
+
+    fireEvent.click(screen.getByRole("button", { name: "Extraer páginas de prueba" }));
+
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("save_pdf", expect.objectContaining({
+      path: "C:\\documentos\\informe-copia.pdf",
+    })));
+    expect(screen.getByText("informe.pdf")).toBeTruthy();
+  });
+
+  it("exports a separate PDF for every page into a chosen directory", async () => {
+    configureNativeMocks(await createPdfBytes(3), 3);
+    render(<App />);
+    clickOpenPdf();
+    await screen.findByTestId("pdf-viewer");
+    mocks.open.mockResolvedValue("C:\\exports");
+
+    fireEvent.click(screen.getByRole("button", { name: "Un PDF por página de prueba" }));
+
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("save_page_exports", expect.objectContaining({
+      directory: "C:\\exports",
+      files: expect.arrayContaining([
+        expect.objectContaining({ name: "informe-pagina-1.pdf" }),
+        expect.objectContaining({ name: "informe-pagina-2.pdf" }),
+        expect.objectContaining({ name: "informe-pagina-3.pdf" }),
+      ]),
+    })));
+  });
+
+  it("splits the open document using entered page ranges", async () => {
+    configureNativeMocks(await createPdfBytes(3), 3);
+    render(<App />);
+    clickOpenPdf();
+    await screen.findByTestId("pdf-viewer");
+
+    fireEvent.click(screen.getByRole("button", { name: "Dividir por rangos de prueba" }));
+    fireEvent.change(screen.getByLabelText("Rangos de páginas"), { target: { value: "1-2, 3" } });
+    mocks.open.mockResolvedValue("C:\\exports");
+    fireEvent.click(screen.getByRole("button", { name: "Dividir y guardar" }));
+
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("save_page_exports", expect.objectContaining({
+      directory: "C:\\exports",
+      files: expect.arrayContaining([
+        expect.objectContaining({ name: "informe-paginas-1-2.pdf" }),
+        expect.objectContaining({ name: "informe-paginas-3.pdf" }),
+      ]),
+    })));
   });
 
   it("saves a copy through Guardar como", async () => {

@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
+  MoreHorizontal,
   RotateCcw,
   RotateCw,
   Search,
@@ -18,8 +19,14 @@ import {
 
 import PdfThumbnail from "./PdfThumbnail";
 import SidebarResizeHandle from "../components/SidebarResizeHandle";
+import { updateThumbnailSelection } from "./pageSelection";
 import type { PageAction } from "./pdfUtils";
-import type { NormalizedRect, PdfAnnotation } from "./pdfUtils";
+import type {
+  NormalizedRect,
+  PageImageFormat,
+  PdfAnnotation,
+  RotationDirection,
+} from "./pdfUtils";
 import type { PdfTool } from "../components/Toolbar";
 
 import "react-pdf/dist/Page/TextLayer.css";
@@ -36,6 +43,8 @@ const pdfOptions = {
 };
 
 const PRINT_DEVICE_PIXEL_RATIO = 3;
+const THUMBNAIL_ROW_HEIGHT = 214;
+const THUMBNAIL_OVERSCAN = 4;
 
 interface PdfViewerProps {
   file: Uint8Array | null;
@@ -48,6 +57,13 @@ interface PdfViewerProps {
   currentPage: number;
   onCurrentPageChange: (pageNumber: number) => void;
   onPageAction: (action: PageAction, pageNumber: number) => void;
+  onRotatePages: (pageNumbers: number[], direction: RotationDirection) => void;
+  onDeletePages: (pageNumbers: number[]) => void;
+  onExtractPages: (pageNumbers: number[]) => void;
+  onMovePages: (pageNumbers: number[], targetPageNumber: number) => void;
+  onExportPagesAsImages: (pageNumbers: number[], format: PageImageFormat) => void;
+  onSplitRanges: () => void;
+  onExportEachPage: () => void;
   onMovePage: (fromPageNumber: number, toPageNumber: number) => void;
   zoom: number;
   onZoomChange: (zoom: number) => void;
@@ -103,6 +119,13 @@ function PdfViewer({
   currentPage,
   onCurrentPageChange,
   onPageAction,
+  onRotatePages,
+  onDeletePages,
+  onExtractPages,
+  onMovePages,
+  onExportPagesAsImages,
+  onSplitRanges,
+  onExportEachPage,
   onMovePage,
   zoom,
   onZoomChange,
@@ -126,8 +149,11 @@ function PdfViewer({
   const [numPages, setNumPages] = useState<number>(0);
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [pageRenderError, setPageRenderError] = useState<string | null>(null);
-  const [draggedPage, setDraggedPage] = useState<number | null>(null);
+  const [draggedPages, setDraggedPages] = useState<Set<number>>(() => new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const [selectedPages, setSelectedPages] = useState<Set<number>>(() => new Set());
+  const [thumbnailScrollTop, setThumbnailScrollTop] = useState(0);
+  const selectionAnchorRef = useRef(currentPage);
   const [pdfSearchOpen, setPdfSearchOpen] = useState(false);
   const [pdfSearchText, setPdfSearchText] = useState("");
   const [pdfSearchMatches, setPdfSearchMatches] = useState<PdfSearchMatch[]>([]);
@@ -141,6 +167,8 @@ function PdfViewer({
   const searchTaskRef = useRef(0);
   const handledSearchRequestRef = useRef(pdfSearchRequest);
   const thumbnailPanelRef = useRef<HTMLDivElement | null>(null);
+  const thumbnailListRef = useRef<HTMLDivElement | null>(null);
+  const thumbnailCacheRef = useRef(new Map<number, string>());
   const pageIndicatorTimerRef = useRef<number | null>(null);
   const scrollSyncPageRef = useRef<number | null>(null);
   const printRenderedPagesRef = useRef<Set<number>>(new Set());
@@ -152,6 +180,7 @@ function PdfViewer({
   const zoomFrameRef = useRef<number | null>(null);
   const pointerDragRef = useRef<{
     pageNumber: number;
+    pageNumbers: number[];
     pointerId: number;
     startX: number;
     startY: number;
@@ -194,6 +223,35 @@ function PdfViewer({
   zoomRef.current = zoom;
   onZoomChangeRef.current = onZoomChange;
   currentPageRef.current = currentPage;
+
+  const panelTop = thumbnailPanelRef.current?.getBoundingClientRect().top ?? 0;
+  const listTop = thumbnailListRef.current
+    ? thumbnailListRef.current.getBoundingClientRect().top - panelTop + thumbnailScrollTop
+    : 0;
+  const listScrollTop = Math.max(0, thumbnailScrollTop - listTop);
+  const panelHeight = thumbnailPanelRef.current?.clientHeight ?? 600;
+  const firstThumbnail = Math.max(
+    0,
+    Math.floor(listScrollTop / THUMBNAIL_ROW_HEIGHT) - THUMBNAIL_OVERSCAN
+  );
+  const lastThumbnail = Math.min(
+    numPages,
+    Math.ceil((listScrollTop + panelHeight) / THUMBNAIL_ROW_HEIGHT) + THUMBNAIL_OVERSCAN
+  );
+  const visibleThumbnailPages = Array.from(
+    { length: Math.max(0, lastThumbnail - firstThumbnail) },
+    (_, index) => firstThumbnail + index + 1
+  );
+
+  function cacheThumbnail(pageNumber: number, dataUrl: string) {
+    const cache = thumbnailCacheRef.current;
+    cache.delete(pageNumber);
+    cache.set(pageNumber, dataUrl);
+    if (cache.size > 300) {
+      const oldestPage = cache.keys().next().value;
+      if (oldestPage !== undefined) cache.delete(oldestPage);
+    }
+  }
 
   useEffect(() => {
     if (pdfSearchRequest === handledSearchRequestRef.current) return;
@@ -392,7 +450,17 @@ function PdfViewer({
     showPageIndicator();
     const panel = thumbnailPanelRef.current;
     const thumbnail = panel?.querySelector<HTMLElement>(`[data-page-number="${currentPage}"]`);
-    if (!panel || !thumbnail) return;
+    if (!panel) return;
+    if (!thumbnail) {
+      const list = thumbnailListRef.current;
+      if (!list) return;
+      const listTop = list.getBoundingClientRect().top - panel.getBoundingClientRect().top + panel.scrollTop;
+      panel.scrollTo({
+        top: listTop + (currentPage - 1) * THUMBNAIL_ROW_HEIGHT,
+        behavior: "smooth",
+      });
+      return;
+    }
 
     const panelBounds = panel.getBoundingClientRect();
     const thumbnailBounds = thumbnail.getBoundingClientRect();
@@ -505,7 +573,10 @@ function PdfViewer({
     const target = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-page-number]");
     const pageNumber = Number(target?.dataset.pageNumber);
     setDropTarget(
-      drag?.active && pageNumber >= 1 && pageNumber <= numPages && pageNumber !== drag.pageNumber
+      drag?.active
+      && pageNumber >= 1
+      && pageNumber <= numPages
+      && !drag.pageNumbers.includes(pageNumber)
         ? pageNumber
         : null
     );
@@ -536,13 +607,14 @@ function PdfViewer({
       const target = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-page-number]");
       const targetPage = Number(target?.dataset.pageNumber);
       suppressClickRef.current = true;
-      if (targetPage >= 1 && targetPage <= numPages && targetPage !== drag.pageNumber) {
-        onMovePage(drag.pageNumber, targetPage);
+      if (targetPage >= 1 && targetPage <= numPages && !drag.pageNumbers.includes(targetPage)) {
+        if (drag.pageNumbers.length > 1) onMovePages(drag.pageNumbers, targetPage);
+        else if (targetPage !== drag.pageNumber) onMovePage(drag.pageNumber, targetPage);
       }
     }
 
     pointerDragRef.current = null;
-    setDraggedPage(null);
+    setDraggedPages(new Set());
     setDropTarget(null);
   }
 
@@ -670,35 +742,155 @@ function PdfViewer({
           </button>
         ) : (
           <>
-            <div ref={thumbnailPanelRef} className="pdf-thumbnails-scroll">
+            <div
+              ref={thumbnailPanelRef}
+              className="pdf-thumbnails-scroll"
+              onScroll={(event) => setThumbnailScrollTop(event.currentTarget.scrollTop)}
+            >
               <div className="thumbnails-header">
                 <span>Páginas</span>
-                <span className="thumbnails-header-actions">{numPages}</span>
+                <span className="thumbnails-header-actions">
+                  <span>{numPages}</span>
+                  <details className="thumbnail-actions-menu">
+                    <summary className="thumbnail-actions-menu-trigger" aria-label="Más acciones del documento" title="Acciones del documento">
+                      <MoreHorizontal size={17} />
+                    </summary>
+                    <div className="thumbnail-actions-menu-popover">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          onSplitRanges();
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                        }}
+                      >
+                        Dividir por rangos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          void onExportEachPage();
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                        }}
+                      >
+                        Un PDF por página
+                      </button>
+                    </div>
+                  </details>
+                </span>
               </div>
+              {selectedPages.size > 0 && (
+                <div className="thumbnail-selection-toolbar" role="toolbar" aria-label="Acciones de la selección">
+                  <span className="thumbnail-selection-count" aria-live="polite">
+                    {selectedPages.size} {selectedPages.size === 1 ? "página seleccionada" : "páginas seleccionadas"}
+                  </span>
+                  <button
+                    type="button"
+                    className="thumbnail-batch-action"
+                    aria-label={`Rotar ${selectedPages.size} ${selectedPages.size === 1 ? "página" : "páginas"} a la izquierda`}
+                    title="Rotar a la izquierda"
+                    onClick={() => onRotatePages([...selectedPages].sort((a, b) => a - b), "left")}
+                  >
+                    <RotateCcw size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    className="thumbnail-batch-action"
+                    aria-label={`Rotar ${selectedPages.size} ${selectedPages.size === 1 ? "página" : "páginas"} a la derecha`}
+                    title="Rotar a la derecha"
+                    onClick={() => onRotatePages([...selectedPages].sort((a, b) => a - b), "right")}
+                  >
+                    <RotateCw size={15} />
+                  </button>
+                  <details className="thumbnail-actions-menu">
+                    <summary className="thumbnail-actions-menu-trigger" aria-label="Más acciones de la selección" title="Más acciones">
+                      <MoreHorizontal size={17} />
+                    </summary>
+                    <div className="thumbnail-actions-menu-popover">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          void onExtractPages([...selectedPages]);
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                        }}
+                      >
+                        Extraer selección
+                      </button>
+                      <button
+                        type="button"
+                        className="thumbnail-action-danger"
+                        onClick={(event) => {
+                          void onDeletePages([...selectedPages]);
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                        }}
+                      >
+                        Eliminar selección
+                      </button>
+                      <div className="thumbnail-actions-menu-divider" />
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          void onExportPagesAsImages([...selectedPages], "png");
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                        }}
+                      >
+                        Exportar PNG
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          void onExportPagesAsImages([...selectedPages], "jpg");
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                        }}
+                      >
+                        Exportar JPG
+                      </button>
+                    </div>
+                  </details>
+                </div>
+              )}
 
-              <div className="thumbnails-list">
-
-          {Array.from(
-            { length: numPages },
-            (_, index) => (
+              <div ref={thumbnailListRef} className="thumbnails-list">
+          {firstThumbnail > 0 && (
+            <div className="thumbnail-virtual-spacer" aria-hidden="true" style={{ height: firstThumbnail * THUMBNAIL_ROW_HEIGHT }} />
+          )}
+          {visibleThumbnailPages.map((pageNumber) => {
+              const index = pageNumber - 1;
+              return (
               <PdfThumbnail
                 key={`thumbnail_${index + 1}`}
                 pageNumber={index + 1}
+                cachedThumbnail={thumbnailCacheRef.current.get(index + 1)}
+                onThumbnailRendered={cacheThumbnail}
                 active={currentPage === index + 1}
+                selected={selectedPages.has(index + 1)}
                 menuOpen={contextMenu?.pageNumber === index + 1}
-                dragging={draggedPage === index + 1}
-                dropTarget={dropTarget === index + 1 && draggedPage !== index + 1}
-                onClick={() => {
+                dragging={draggedPages.has(index + 1)}
+                dropTarget={dropTarget === index + 1 && !draggedPages.has(index + 1)}
+                onClick={(event) => {
                   if (suppressClickRef.current) {
                     suppressClickRef.current = false;
                     return;
                   }
+                  const selection = updateThumbnailSelection(
+                    selectedPages,
+                    index + 1,
+                    selectionAnchorRef.current,
+                    {
+                      shiftKey: event.shiftKey,
+                      additive: event.ctrlKey || event.metaKey,
+                    }
+                  );
+                  setSelectedPages(selection.selectedPages);
+                  selectionAnchorRef.current = selection.anchorPageNumber;
                   goToPage(index + 1);
                 }}
                 onPointerDown={(event) => {
                   if (!event.isPrimary || event.button !== 0) return;
                   pointerDragRef.current = {
                     pageNumber: index + 1,
+                    pageNumbers: selectedPages.has(index + 1)
+                      ? [...selectedPages].sort((left, right) => left - right)
+                      : [index + 1],
                     pointerId: event.pointerId,
                     startX: event.clientX,
                     startY: event.clientY,
@@ -716,7 +908,7 @@ function PdfViewer({
 
                   if (!drag.active && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 6) {
                     drag.active = true;
-                    setDraggedPage(drag.pageNumber);
+                    setDraggedPages(new Set(drag.pageNumbers));
                     autoScrollTimerRef.current = window.setInterval(scrollWhileDragging, 40);
                   }
 
@@ -746,7 +938,10 @@ function PdfViewer({
                   openPageMenu(index + 1, bounds.right + 6, bounds.top);
                 }}
               />
-            )
+              );
+            })}
+          {lastThumbnail < numPages && (
+            <div className="thumbnail-virtual-spacer" aria-hidden="true" style={{ height: (numPages - lastThumbnail) * THUMBNAIL_ROW_HEIGHT }} />
           )}
 
               </div>

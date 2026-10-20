@@ -25,15 +25,15 @@ cuando esté terminado.
 ## Fase 2: Flujo de trabajo con páginas
 
 - [x] Añadir arrastrar y soltar PDFs dentro de la ventana.
-- [ ] Permitir seleccionar varias miniaturas a la vez.
-- [ ] Rotar varias páginas en una sola operación.
-- [ ] Eliminar varias páginas en una sola operación.
-- [ ] Extraer páginas seleccionadas a un nuevo PDF.
-- [ ] Dividir un PDF por rangos de páginas.
-- [ ] Crear un PDF separado por cada página.
-- [ ] Reordenar grupos de páginas.
-- [ ] Añadir exportación de páginas como PNG o JPG.
-- [ ] Añadir caché y renderizado virtualizado para miniaturas.
+- [x] Permitir seleccionar varias miniaturas a la vez.
+- [x] Rotar varias páginas en una sola operación.
+- [x] Eliminar varias páginas en una sola operación.
+- [x] Extraer páginas seleccionadas a un nuevo PDF.
+- [x] Dividir un PDF por rangos de páginas.
+- [x] Crear un PDF separado por cada página.
+- [x] Reordenar grupos de páginas.
+- [x] Añadir exportación de páginas como PNG o JPG.
+- [x] Añadir caché y renderizado virtualizado para miniaturas.
 
 ## Fase 3: Varios documentos
 
@@ -139,7 +139,7 @@ Para empezar con entregas de alto impacto, se recomienda este orden:
 
 - [ ] Actualizar documentación y añadir pruebas base.
 - [x] Añadir arrastrar y soltar.
-- [ ] Añadir selección múltiple y extracción de páginas.
+- [x] Añadir selección múltiple y extracción de páginas.
 - [ ] Añadir guardado automático y recuperación.
 - [ ] Añadir pestañas.
 - [ ] Añadir OCR.

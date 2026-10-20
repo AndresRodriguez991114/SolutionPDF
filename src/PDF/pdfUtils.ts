@@ -16,6 +16,19 @@ export type PageAction =
   | "move-down"
   | "delete";
 
+export type RotationDirection = "left" | "right";
+export type PageImageFormat = "png" | "jpg";
+
+export interface PageRange {
+  start: number;
+  end: number;
+}
+
+export interface ExportedPageImage {
+  pageNumber: number;
+  bytes: Uint8Array;
+}
+
 export async function loadPdf(bytes: Uint8Array): Promise<PDFDocument> {
   return PDFDocument.load(bytes);
 }
@@ -103,22 +116,55 @@ export async function movePageTo(
   const pdf = await loadPdf(bytes);
   const pageCount = pdf.getPageCount();
   if (
-    !Number.isInteger(fromPageNumber) ||
-    !Number.isInteger(toPageNumber) ||
-    fromPageNumber < 1 ||
-    fromPageNumber > pageCount ||
-    toPageNumber < 1 ||
-    toPageNumber > pageCount
+    !Number.isInteger(fromPageNumber)
+    || !Number.isInteger(toPageNumber)
+    || fromPageNumber < 1
+    || fromPageNumber > pageCount
+    || toPageNumber < 1
+    || toPageNumber > pageCount
   ) {
     throw new Error("La página de origen o destino no es válida.");
   }
-  if (fromPageNumber === toPageNumber) return bytes;
+  return movePagesTo(bytes, [fromPageNumber], toPageNumber);
+}
 
-  const order = Array.from({ length: pageCount }, (_, index) => index);
-  const [movedPage] = order.splice(fromPageNumber - 1, 1);
-  order.splice(toPageNumber - 1, 0, movedPage);
+function validatePageNumbers(pageNumbers: number[], pageCount: number): number[] {
+  const uniquePageNumbers = [...new Set(pageNumbers)];
+  if (
+    uniquePageNumbers.length === 0
+    || uniquePageNumbers.some((pageNumber) =>
+      !Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > pageCount
+    )
+  ) {
+    throw new Error("La selección contiene páginas no válidas.");
+  }
+  return uniquePageNumbers.sort((left, right) => left - right);
+}
 
-  return savePdf(await reorderPages(pdf, order));
+export async function movePagesTo(
+  bytes: Uint8Array,
+  pageNumbers: number[],
+  targetPageNumber: number
+): Promise<Uint8Array> {
+  const pdf = await loadPdf(bytes);
+  const pageCount = pdf.getPageCount();
+  if (
+    !Number.isInteger(targetPageNumber)
+    || targetPageNumber < 1
+    || targetPageNumber > pageCount
+  ) {
+    throw new Error("La posición de destino no es válida.");
+  }
+  const selectedPageNumbers = validatePageNumbers(pageNumbers, pageCount);
+  if (selectedPageNumbers.includes(targetPageNumber)) return bytes;
+
+  const pageIndices = pdf.getPages().map((_, index) => index);
+  const selectedIndices = new Set(selectedPageNumbers.map((pageNumber) => pageNumber - 1));
+  const selectedInOrder = pageIndices.filter((index) => selectedIndices.has(index));
+  const remaining = pageIndices.filter((index) => !selectedIndices.has(index));
+  remaining.splice(Math.min(targetPageNumber - 1, remaining.length), 0, ...selectedInOrder);
+
+  return savePdf(await reorderPages(pdf, remaining));
 }
 
 /**
@@ -163,6 +209,159 @@ export async function applyPageAction(
 
   const reordered = await reorderPages(pdf, order);
   return savePdf(reordered);
+}
+
+export async function rotatePages(
+  bytes: Uint8Array,
+  pageNumbers: number[],
+  direction: RotationDirection
+): Promise<Uint8Array> {
+  const pdf = await loadPdf(bytes);
+  const uniquePageNumbers = validatePageNumbers(pageNumbers, pdf.getPageCount());
+  const rotation = direction === "left" ? -90 : 90;
+  for (const pageNumber of uniquePageNumbers) {
+    rotatePage(pdf, pageNumber - 1, rotation);
+  }
+  return savePdf(pdf);
+}
+
+export async function deletePages(
+  bytes: Uint8Array,
+  pageNumbers: number[]
+): Promise<Uint8Array> {
+  const pdf = await loadPdf(bytes);
+  const selectedPageNumbers = validatePageNumbers(pageNumbers, pdf.getPageCount());
+  if (selectedPageNumbers.length >= pdf.getPageCount()) {
+    throw new Error("El PDF debe conservar al menos una página.");
+  }
+  for (const pageNumber of selectedPageNumbers.sort((left, right) => right - left)) {
+    pdf.removePage(pageNumber - 1);
+  }
+  return savePdf(pdf);
+}
+
+export async function extractPages(
+  bytes: Uint8Array,
+  pageNumbers: number[]
+): Promise<Uint8Array> {
+  const source = await loadPdf(bytes);
+  const selectedPageNumbers = validatePageNumbers(pageNumbers, source.getPageCount());
+  const extracted = await PDFDocument.create();
+  const pages = await extracted.copyPages(
+    source,
+    selectedPageNumbers.map((pageNumber) => pageNumber - 1)
+  );
+  pages.forEach((page) => extracted.addPage(page));
+  return savePdf(extracted, { useObjectStreams: true });
+}
+
+export function parsePageRanges(value: string, pageCount: number): PageRange[] {
+  const parts = value.split(",");
+  if (!value.trim() || parts.some((part) => !part.trim())) {
+    throw new Error("Escribe uno o más rangos, por ejemplo: 1-3, 5.");
+  }
+
+  const seenPages = new Set<number>();
+  return parts.map((part) => {
+    const match = part.trim().match(/^(\d+)\s*(?:-\s*(\d+))?$/);
+    if (!match) throw new Error(`El rango "${part.trim()}" no es válido.`);
+    const start = Number(match[1]);
+    const end = Number(match[2] || match[1]);
+    if (start > end) throw new Error(`El rango "${part.trim()}" debe ir de menor a mayor.`);
+    if (start < 1 || end > pageCount) {
+      throw new Error(`Las páginas deben estar entre 1 y ${pageCount}.`);
+    }
+    for (let pageNumber = start; pageNumber <= end; pageNumber += 1) {
+      if (seenPages.has(pageNumber)) {
+        throw new Error(`La página ${pageNumber} aparece en más de un rango.`);
+      }
+      seenPages.add(pageNumber);
+    }
+    return { start, end };
+  });
+}
+
+export async function splitPdfByRanges(
+  bytes: Uint8Array,
+  ranges: PageRange[]
+): Promise<Uint8Array[]> {
+  const source = await loadPdf(bytes);
+  const pageCount = source.getPageCount();
+  return Promise.all(ranges.map(async ({ start, end }) => {
+    const pageNumbers = validatePageNumbers(
+      Array.from({ length: end - start + 1 }, (_, index) => start + index),
+      pageCount
+    );
+    const part = await PDFDocument.create();
+    const pages = await part.copyPages(source, pageNumbers.map((pageNumber) => pageNumber - 1));
+    pages.forEach((page) => part.addPage(page));
+    return savePdf(part, { useObjectStreams: true });
+  }));
+}
+
+export async function splitPdfIntoPages(bytes: Uint8Array): Promise<Uint8Array[]> {
+  const source = await loadPdf(bytes);
+  return splitPdfByRanges(
+    bytes,
+    Array.from({ length: source.getPageCount() }, (_, index) => ({
+      start: index + 1,
+      end: index + 1,
+    }))
+  );
+}
+
+export async function exportPagesAsImages(
+  bytes: Uint8Array,
+  pageNumbers: number[],
+  format: PageImageFormat,
+  onProgress?: (current: number, total: number) => void
+): Promise<ExportedPageImage[]> {
+  const loadingTask = pdfjs.getDocument({ data: Uint8Array.from(bytes) });
+  try {
+    const source = await loadingTask.promise;
+    const selectedPageNumbers = validatePageNumbers(pageNumbers, source.numPages);
+    const mimeType = format === "png" ? "image/png" : "image/jpeg";
+    const images: ExportedPageImage[] = [];
+
+    for (const [index, pageNumber] of selectedPageNumbers.entries()) {
+      const page = await source.getPage(pageNumber);
+      const baseViewport = page.getViewport({ scale: 1 });
+      const scale = Math.min(2, Math.sqrt(16_000_000 / (baseViewport.width * baseViewport.height)));
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      const context = canvas.getContext("2d", { alpha: format === "png" });
+      if (!context) throw new Error(`No se pudo preparar la página ${pageNumber} como imagen.`);
+
+      try {
+        if (format === "jpg") {
+          context.fillStyle = "#fff";
+          context.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        await page.render({ canvas, canvasContext: context, viewport }).promise;
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob(
+            (result) => result
+              ? resolve(result)
+              : reject(new Error(`No se pudo exportar la página ${pageNumber} como imagen.`)),
+            mimeType,
+            format === "jpg" ? 0.92 : undefined
+          );
+        });
+        images.push({ pageNumber, bytes: new Uint8Array(await blob.arrayBuffer()) });
+      } finally {
+        page.cleanup();
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      onProgress?.(index + 1, selectedPageNumbers.length);
+    }
+
+    return images;
+  } finally {
+    await loadingTask.destroy();
+  }
 }
 
 export async function mergePdfs(

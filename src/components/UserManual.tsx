@@ -23,7 +23,7 @@ const sections: ManualSection[] = [
     title: "Trabaja con tus PDF",
     introduction: "SolutionsPDF reúne lectura, organización y anotación en una sola ventana. Abre un documento para comenzar; tus archivos permanecen en este dispositivo.",
     topics: [
-      { title: "Abrir un documento", body: "Pulsa Abrir PDF en la barra de herramientas o elige Archivo > Abrir PDF. También puedes usar Ctrl+O. Si el PDF está protegido, ingresa su contraseña para abrirlo. La contraseña solo se usa en este dispositivo y no se guarda. Los documentos que abras aparecerán en Documentos locales para volver a abrirlos rápidamente." },
+      { title: "Abrir un documento", body: "Pulsa Abrir PDF en la barra de herramientas o elige Archivo > Abrir PDF. También puedes usar Ctrl+O o arrastrar un PDF a la ventana. Suelta un solo archivo PDF a la vez. Si el PDF está protegido, ingresa su contraseña para abrirlo. La contraseña solo se usa en este dispositivo y no se guarda. Los documentos que abras aparecerán en Documentos locales para volver a abrirlos rápidamente." },
       { title: "Recorrer el documento", body: "Desplázate por las páginas en el área central. El indicador superior muestra la página actual y el total. En el panel Páginas, selecciona una miniatura para saltar directamente a ella." },
       { title: "Guardar el trabajo", body: "Usa Archivo > Guardar o Ctrl+S para guardar los cambios en el archivo abierto. Guardar como... crea una copia en otra ubicación. Si intentas cerrar con cambios pendientes, la app te preguntará si quieres guardarlos." },
     ],
@@ -49,8 +49,10 @@ const sections: ManualSection[] = [
     title: "Ordena y modifica páginas",
     introduction: "El botón Páginas abre las acciones para la página actual. También puedes trabajar directamente con las miniaturas del panel lateral.",
     topics: [
-      { title: "Rotar, mover o eliminar", body: "En Páginas puedes rotar la página a izquierda o derecha, moverla una posición arriba o abajo, o eliminarla. Las mismas opciones aparecen con clic derecho o en el menú de tres puntos de una miniatura. La app pide confirmación antes de eliminar." },
-      { title: "Reordenar miniaturas", body: "Arrastra una miniatura y suéltala en la posición deseada para mover la página. Haz clic en una miniatura para navegar hasta ella. No se puede mover una página más allá de la primera o la última." },
+      { title: "Rotar, mover o eliminar", body: "En Páginas puedes rotar la página a izquierda o derecha, moverla una posición arriba o abajo, o eliminarla. Para rotar varias páginas, selecciónalas en las miniaturas y usa los botones de giro junto al contador. La rotación del grupo se aplica como una sola acción y se puede deshacer. Usa Eliminar selección para borrar varias páginas con una confirmación; el PDF debe conservar al menos una página. Las acciones individuales también aparecen con clic derecho o en el menú de tres puntos de una miniatura." },
+      { title: "Seleccionar, extraer y reordenar", body: "Haz clic en una miniatura para navegar hasta la página. Usa Ctrl+clic (Cmd+clic en Mac) para agregar o quitar páginas de la selección, o Mayús+clic para seleccionar un rango. Al seleccionar páginas aparece una barra compacta con rotación y el menú Más acciones, donde puedes extraerlas a un nuevo PDF. Para moverlas juntas, arrastra una de las miniaturas seleccionadas a la posición de destino; se conserva el orden original del grupo. Arrastra una sola miniatura para mover una página." },
+      { title: "Dividir y exportar páginas", body: "Abre Más acciones junto al título Páginas para dividir por rangos o crear un PDF por página. Dividir por rangos crea un PDF para cada rango indicado, por ejemplo 1-3, 5, 7-9; los rangos no pueden solaparse. Con una selección activa, abre Más acciones en la barra contextual para eliminar, extraer o exportar las páginas como PNG o JPG. Los archivos originales no se modifican." },
+      { title: "Miniaturas de documentos grandes", body: "El panel carga las miniaturas visibles y algunas páginas cercanas; al desplazarte, las miniaturas ya renderizadas se reutilizan durante la sesión del documento." },
       { title: "Deshacer y rehacer", body: "Usa Editar > Deshacer (Ctrl+Z) y Rehacer (Ctrl+Y) para recorrer los cambios de páginas y anotaciones disponibles en el historial." },
     ],
   },

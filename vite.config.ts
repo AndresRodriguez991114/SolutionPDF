@@ -23,6 +23,33 @@ export default defineConfig(() => ({
   test: {
     environment: "jsdom",
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "pdfjs",
+              test: /node_modules[\\/]pdfjs-dist[\\/]/,
+              maxSize: 350 * 1024,
+              priority: 20,
+            },
+            {
+              name: "pdf-lib",
+              test: /node_modules[\\/]pdf-lib[\\/]/,
+              maxSize: 350 * 1024,
+              priority: 10,
+            },
+            {
+              name: "vendor",
+              test: /node_modules[\\/]/,
+              maxSize: 350 * 1024,
+            },
+          ],
+        },
+      },
+    },
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

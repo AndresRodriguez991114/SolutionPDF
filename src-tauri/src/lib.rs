@@ -8,7 +8,9 @@ use rand::RngExt as _;
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
-    path::Path,
+    fs::{self, OpenOptions},
+    io::Write,
+    path::{Path, PathBuf},
     sync::Arc,
     sync::{Mutex, OnceLock},
 };
@@ -50,6 +52,91 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 fn save_pdf(path: String, bytes: Vec<u8>) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|error| error.to_string())
+}
+
+#[derive(Deserialize)]
+struct ExportFile {
+    name: String,
+    bytes: Vec<u8>,
+}
+
+fn save_export_files(directory: &Path, files: Vec<ExportFile>) -> Result<Vec<String>, String> {
+    if files.is_empty() {
+        return Err("No hay archivos para exportar.".into());
+    }
+    if !directory.is_dir() {
+        return Err("La carpeta de destino no existe o no se puede abrir.".into());
+    }
+
+    let mut written_paths = Vec::<PathBuf>::new();
+    for file in files {
+        if file.name.is_empty()
+            || file.name == "."
+            || file.name == ".."
+            || file.name.contains('/')
+            || file.name.contains('\\')
+            || Path::new(&file.name)
+                .file_name()
+                .and_then(|name| name.to_str())
+                != Some(file.name.as_str())
+        {
+            rollback_export_files(&written_paths)?;
+            return Err("El nombre de un archivo exportado no es válido.".into());
+        }
+
+        let path = directory.join(&file.name);
+        let mut output = match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(output) => output,
+            Err(error) => {
+                let rollback_result = rollback_export_files(&written_paths);
+                return Err(match rollback_result {
+                    Ok(()) => format!("No se pudo crear {}: {error}", path.display()),
+                    Err(rollback_error) => format!(
+                        "No se pudo crear {}: {error}. Además, no se pudieron retirar todos los archivos parciales: {rollback_error}",
+                        path.display()
+                    ),
+                });
+            }
+        };
+        if let Err(error) = output.write_all(&file.bytes) {
+            drop(output);
+            let mut rollback_paths = written_paths.clone();
+            rollback_paths.push(path.clone());
+            let rollback_result = rollback_export_files(&rollback_paths);
+            return Err(match rollback_result {
+                Ok(()) => format!("No se pudo crear {}: {error}", path.display()),
+                Err(rollback_error) => format!(
+                    "No se pudo crear {}: {error}. Además, no se pudieron retirar todos los archivos parciales: {rollback_error}",
+                    path.display()
+                ),
+            });
+        }
+        written_paths.push(path);
+    }
+
+    Ok(written_paths
+        .into_iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect())
+}
+
+fn rollback_export_files(paths: &[PathBuf]) -> Result<(), String> {
+    let mut failures = Vec::new();
+    for path in paths.iter().rev() {
+        if let Err(error) = fs::remove_file(path) {
+            failures.push(format!("{}: {error}", path.display()));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
+}
+
+#[tauri::command]
+fn save_page_exports(directory: String, files: Vec<ExportFile>) -> Result<Vec<String>, String> {
+    save_export_files(Path::new(&directory), files)
 }
 
 #[tauri::command]
@@ -431,6 +518,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             save_pdf,
+            save_page_exports,
             unlock_pdf,
             protect_pdf,
             replace_pdf_text,
@@ -443,10 +531,71 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        left_shift_to_fit_page, protect_pdf, replace_pdf_text, shared_pdfium,
-        shift_following_text_on_same_line, unlock_pdf, SelectionRect,
+        left_shift_to_fit_page, protect_pdf, replace_pdf_text, save_export_files, shared_pdfium,
+        shift_following_text_on_same_line, unlock_pdf, ExportFile, SelectionRect,
     };
     use pdfium_bundled::pdfium_render::prelude::PdfPageObjectsCommon;
+    use std::fs;
+
+    #[test]
+    fn save_export_files_does_not_overwrite_and_rolls_back_partial_output() {
+        let directory = std::env::temp_dir().join(format!(
+            "solutionspdf-export-test-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&directory).expect("create temp export directory");
+        fs::write(directory.join("existing.pdf"), b"original").expect("create existing file");
+
+        let result = save_export_files(
+            &directory,
+            vec![
+                ExportFile {
+                    name: "new.pdf".into(),
+                    bytes: b"new".to_vec(),
+                },
+                ExportFile {
+                    name: "existing.pdf".into(),
+                    bytes: b"overwrite".to_vec(),
+                },
+            ],
+        );
+
+        assert!(result.is_err());
+        assert!(!directory.join("new.pdf").exists());
+        assert_eq!(
+            fs::read(directory.join("existing.pdf")).expect("read existing file"),
+            b"original"
+        );
+        fs::remove_dir_all(directory).expect("remove temp export directory");
+    }
+
+    #[test]
+    fn save_export_files_rejects_path_components() {
+        let directory = std::env::temp_dir().join(format!(
+            "solutionspdf-export-test-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&directory).expect("create temp export directory");
+
+        let result = save_export_files(
+            &directory,
+            vec![ExportFile {
+                name: "..\\outside.pdf".into(),
+                bytes: b"invalid".to_vec(),
+            }],
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read_dir(&directory)
+                .expect("list temp directory")
+                .count(),
+            0
+        );
+        fs::remove_dir_all(directory).expect("remove temp export directory");
+    }
 
     fn minimal_text_pdf_at(text_x: i32) -> Vec<u8> {
         let content = format!("BT /F1 12 Tf {text_x} 700 Td (old value) Tj ET");

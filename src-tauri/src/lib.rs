@@ -83,9 +83,10 @@ fn save_binary_file(request: tauri::ipc::Request<'_>) -> Result<(), String> {
             extension.eq_ignore_ascii_case("docx")
                 || extension.eq_ignore_ascii_case("xlsx")
                 || extension.eq_ignore_ascii_case("pptx")
+                || extension.eq_ignore_ascii_case("html")
         });
     if !is_supported_export {
-        return Err("Solo se permite guardar archivos .docx, .xlsx o .pptx con este comando.".into());
+        return Err("Solo se permite guardar archivos .docx, .xlsx, .pptx o .html con este comando.".into());
     }
     let bytes = match request.body() {
         tauri::ipc::InvokeBody::Raw(bytes) => bytes.as_slice(),
@@ -106,9 +107,10 @@ fn open_exported_file(path: String) -> Result<(), String> {
             extension.eq_ignore_ascii_case("docx")
                 || extension.eq_ignore_ascii_case("xlsx")
                 || extension.eq_ignore_ascii_case("pptx")
+                || extension.eq_ignore_ascii_case("html")
         });
     if !is_supported_export || !target.is_file() {
-        return Err("Solo se pueden abrir documentos Word, Excel o PowerPoint exportados.".into());
+        return Err("Solo se pueden abrir documentos Word, Excel, PowerPoint o HTML exportados.".into());
     }
 
     let program = if cfg!(target_os = "windows") {

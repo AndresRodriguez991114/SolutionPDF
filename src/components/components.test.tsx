@@ -25,6 +25,7 @@ function renderToolbar(hasDocument = true) {
       onExportWord={vi.fn()}
       onExportExcel={vi.fn()}
       onExportPowerPoint={vi.fn()}
+      onExportHtml={vi.fn()}
       onExportImage={vi.fn()}
       onCheckUpdates={vi.fn()}
       hasDocument={hasDocument}
@@ -75,6 +76,7 @@ describe("Toolbar", () => {
       onExportWord={onExportWord}
       onExportExcel={vi.fn()}
       onExportPowerPoint={vi.fn()}
+      onExportHtml={vi.fn()}
       onExportImage={vi.fn()}
       onCheckUpdates={vi.fn()}
       hasDocument
@@ -102,6 +104,7 @@ describe("Toolbar", () => {
       onExportWord={vi.fn()}
       onExportExcel={vi.fn()}
       onExportPowerPoint={onExportPowerPoint}
+      onExportHtml={vi.fn()}
       onExportImage={vi.fn()}
       onCheckUpdates={vi.fn()}
       hasDocument
@@ -129,6 +132,7 @@ describe("Toolbar", () => {
       onExportWord={vi.fn()}
       onExportExcel={vi.fn()}
       onExportPowerPoint={vi.fn()}
+      onExportHtml={vi.fn()}
       onExportImage={onExportImage}
       onCheckUpdates={vi.fn()}
       hasDocument
@@ -140,6 +144,33 @@ describe("Toolbar", () => {
 
     expect(onExportImage).toHaveBeenCalledWith("png");
     expect(screen.queryByRole("menu", { name: "Formatos de exportación" })).toBeNull();
+  });
+
+  it("opens HTML export from the consolidated format menu", () => {
+    const onExportHtml = vi.fn();
+    render(<Toolbar
+      onOpenPdf={vi.fn()}
+      onEditPdf={vi.fn()}
+      onSign={vi.fn()}
+      onToolChange={vi.fn()}
+      activeTool={null}
+      onMergePdf={vi.fn()}
+      mergeInProgress={false}
+      onOptimizePdf={vi.fn()}
+      onPrint={vi.fn()}
+      onExportWord={vi.fn()}
+      onExportExcel={vi.fn()}
+      onExportPowerPoint={vi.fn()}
+      onExportHtml={onExportHtml}
+      onExportImage={vi.fn()}
+      onCheckUpdates={vi.fn()}
+      hasDocument
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Archivo PDF" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Página web HTML" }));
+
+    expect(onExportHtml).toHaveBeenCalledOnce();
   });
 });
 

@@ -91,7 +91,7 @@ describe("exportPdfToPowerPoint", () => {
     const position = textBoxForSlide({
       str: "Texto",
       x: 60,
-      y: 156,
+      y: 900,
       width: 80,
       size: 12,
       bold: false,
@@ -101,7 +101,7 @@ describe("exportPdfToPowerPoint", () => {
     }, 816, 1056, 816 / 1056 * 7.5, 7.5);
 
     expect(position?.x).toBeCloseTo(0.426, 2);
-    expect(position?.y).toBeCloseTo(1.023, 2);
+    expect(position?.y).toBeCloseTo(1.027, 2);
     expect(position?.w).toBeCloseTo(0.568, 2);
     expect(position?.fontSize).toBeCloseTo(6.136, 2);
   });

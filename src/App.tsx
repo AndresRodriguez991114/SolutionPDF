@@ -31,6 +31,8 @@ import type { WordExportMode, WordExportQuality } from "./PDF/exportWord";
 import { exportPdfToExcel } from "./PDF/exportExcel";
 import { exportPdfToPowerPoint } from "./PDF/exportPowerPoint";
 import type { PowerPointExportMode, PowerPointExportQuality } from "./PDF/exportPowerPoint";
+import { exportPdfToHtml } from "./PDF/exportHtml";
+import type { HtmlExportMode, HtmlExportQuality } from "./PDF/exportHtml";
 import PagesPanel from "./components/PagesPanel";
 import UserManual from "./components/UserManual";
 import StatusBar from "./components/StatusBar";
@@ -218,6 +220,13 @@ function App() {
   const [powerPointPages, setPowerPointPages] = useState("");
   const [powerPointProgress, setPowerPointProgress] = useState<CompressionProgress | null>(null);
   const powerPointAbortRef = useRef<AbortController | null>(null);
+  const [htmlDialogOpen, setHtmlDialogOpen] = useState(false);
+  const [htmlMode, setHtmlMode] = useState<HtmlExportMode>("faithful");
+  const [htmlQuality, setHtmlQuality] = useState<HtmlExportQuality>("high");
+  const [htmlUseOcr, setHtmlUseOcr] = useState(false);
+  const [htmlPages, setHtmlPages] = useState("");
+  const [htmlProgress, setHtmlProgress] = useState<CompressionProgress | null>(null);
+  const htmlAbortRef = useRef<AbortController | null>(null);
   const [splitDialogOpen, setSplitDialogOpen] = useState(false);
   const [splitRanges, setSplitRanges] = useState("");
   const [splitError, setSplitError] = useState<string | null>(null);
@@ -664,6 +673,14 @@ function App() {
     setPowerPointDialogOpen(true);
   }
 
+  function handleExportHtml() {
+    if (!pdfBytesRef.current) return;
+    setHtmlPages("");
+    setHtmlUseOcr(false);
+    setHtmlMode("faithful");
+    setHtmlDialogOpen(true);
+  }
+
   function encodePathHex(text: string): string {
     return Array.from(new TextEncoder().encode(text), (value) => value.toString(16).padStart(2, "0")).join("");
   }
@@ -892,6 +909,77 @@ function App() {
   function handleCancelPowerPointExport() {
     powerPointAbortRef.current?.abort();
     powerPointAbortRef.current = null;
+  }
+
+  async function handleRunHtmlExport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const current = pdfBytesRef.current;
+    if (!current) return;
+
+    let pageNumbers: number[] | undefined;
+    if (htmlPages.trim()) {
+      try {
+        pageNumbers = parsePageRanges(htmlPages, pageCount).flatMap(({ start, end }) =>
+          Array.from({ length: end - start + 1 }, (_, offset) => start + offset)
+        );
+      } catch (error) {
+        notify("Páginas no válidas", errorMessage(error));
+        return;
+      }
+    }
+
+    const baseName = (fileName || "documento.pdf").replace(/\.pdf$/i, "");
+    const abortController = new AbortController();
+    htmlAbortRef.current = abortController;
+    try {
+      const path = await saveDialog({
+        defaultPath: `${baseName}.html`,
+        filters: [{ name: "Página web HTML", extensions: ["html"] }],
+      });
+      if (!path) return;
+      setHtmlDialogOpen(false);
+      setHtmlProgress({ current: 0, total: pageNumbers?.length ?? pageCount });
+      const source = await applyAnnotationsToPdf(current, annotations);
+      const { html, pagesWithoutText, ocrPages } = await exportPdfToHtml(source, {
+        mode: htmlMode,
+        quality: htmlQuality,
+        enableOcr: htmlUseOcr,
+        title: baseName,
+        signal: abortController.signal,
+        pageNumbers,
+        onProgress: (done, total) => setHtmlProgress({ current: done, total }),
+      });
+      await saveBinaryExport(path, new TextEncoder().encode(html));
+      setStatus("Exportado a HTML");
+      try {
+        await invoke("open_exported_file", { path });
+      } catch (error) {
+        notify("Se exportó a HTML, pero no se pudo abrir el archivo", errorMessage(error));
+      }
+      if (pagesWithoutText.length > 0) {
+        notify(
+          "Páginas sin texto seleccionable",
+          ocrPages.length > 0
+            ? `Se aplicó OCR en: ${ocrPages.join(", ")}. Sin texto: ${pagesWithoutText.filter((page) => !ocrPages.includes(page)).join(", ") || "ninguna"}.`
+            : `No se encontró texto seleccionable en las páginas ${pagesWithoutText.join(", ")}. Activa OCR para reconocerlo.`
+        );
+      }
+    } catch (error) {
+      if (abortController.signal.aborted) {
+        setStatus("Exportación cancelada");
+      } else {
+        setStatus("Listo");
+        notify("No se pudo exportar a HTML", errorMessage(error));
+      }
+    } finally {
+      htmlAbortRef.current = null;
+      setHtmlProgress(null);
+    }
+  }
+
+  function handleCancelHtmlExport() {
+    htmlAbortRef.current?.abort();
+    htmlAbortRef.current = null;
   }
 
   async function handlePageAction(action: PageAction, pageNumber: number) {
@@ -1682,6 +1770,7 @@ function App() {
         onExportWord={handleExportWord}
         onExportExcel={handleExportExcel}
         onExportPowerPoint={handleExportPowerPoint}
+        onExportHtml={handleExportHtml}
         onExportImage={(format) => void handleExportAllPagesAsImages(format)}
         onCheckUpdates={handleCheckUpdates}
         hasDocument={Boolean(pdfFile)}
@@ -1937,6 +2026,33 @@ function App() {
         </aside>
       )}
 
+      {htmlProgress && (
+        <aside className="merge-progress" role="status" aria-live="polite">
+          <div className="merge-progress-heading">
+            <LoaderCircle className="merge-progress-spinner" size={17} aria-hidden="true" />
+            <strong>Exportando a HTML</strong>
+          </div>
+          <p>
+            {htmlProgress.current > 0
+              ? `Procesando página ${htmlProgress.current} de ${htmlProgress.total}`
+              : "Preparando páginas..."}
+          </p>
+          <div
+            className="merge-progress-track"
+            role="progressbar"
+            aria-label="Páginas exportadas a HTML"
+            aria-valuemin={0}
+            aria-valuemax={htmlProgress.total}
+            aria-valuenow={htmlProgress.current}
+          >
+            <span style={{ width: `${htmlProgress.total ? (htmlProgress.current / htmlProgress.total) * 100 : 0}%` }} />
+          </div>
+          <div className="dialog-footer" style={{ marginTop: "0.75rem" }}>
+            <button type="button" onClick={handleCancelHtmlExport}>Cancelar exportación</button>
+          </div>
+        </aside>
+      )}
+
       {wordDialogOpen && (
         <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setWordDialogOpen(false); }}>
           <form className="app-dialog compression-dialog" role="dialog" aria-modal="true" aria-labelledby="word-dialog-title" onSubmit={(event) => void handleRunWordExport(event)}>
@@ -2095,6 +2211,78 @@ function App() {
             )}
             <div className="dialog-footer">
               <button type="button" onClick={() => setPowerPointDialogOpen(false)}>Cancelar</button>
+              <button type="submit" className="dialog-primary">Exportar y abrir</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {htmlDialogOpen && (
+        <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setHtmlDialogOpen(false); }}>
+          <form className="app-dialog compression-dialog" role="dialog" aria-modal="true" aria-labelledby="html-dialog-title" onSubmit={(event) => void handleRunHtmlExport(event)}>
+            <h2 id="html-dialog-title">Exportar a HTML</h2>
+            <p>Genera un único archivo HTML sin dependencias externas. Al terminar, se abrirá en tu navegador.</p>
+            <div className="compression-options" role="radiogroup" aria-label="Modo de exportación de HTML">
+              {([
+                { id: "faithful", title: "FIEL AL PDF", description: "Misma apariencia que el PDF, con texto seleccionable y enlaces" },
+                { id: "semantic", title: "PÁGINA WEB LIMPIA", description: "Títulos, párrafos, listas y tablas adaptables a cualquier pantalla" },
+              ] as const).map((option) => (
+                <label className={`compression-option ${htmlMode === option.id ? "selected" : ""}`} key={option.id}>
+                  <input
+                    type="radio"
+                    name="html-mode"
+                    value={option.id}
+                    checked={htmlMode === option.id}
+                    onChange={() => setHtmlMode(option.id)}
+                  />
+                  <span className="compression-option-copy">
+                    <strong>{option.title}</strong>
+                    <span>{option.description}</span>
+                  </span>
+                  {htmlMode === option.id && <Check className="compression-option-check" size={20} aria-hidden="true" />}
+                </label>
+              ))}
+            </div>
+            <label className="signature-label" htmlFor="html-pages-input">Páginas (vacío = todas)</label>
+            <input
+              id="html-pages-input"
+              className="password-input"
+              value={htmlPages}
+              placeholder={`Ej.: 1-3, 5 (el documento tiene ${pageCount})`}
+              onChange={(event) => setHtmlPages(event.target.value)}
+            />
+            {htmlMode === "faithful" && (
+              <>
+                <label className="signature-label" htmlFor="html-quality-input">Calidad de imágenes</label>
+                <select
+                  id="html-quality-input"
+                  className="password-input"
+                  value={htmlQuality}
+                  onChange={(event) => setHtmlQuality(event.target.value as HtmlExportQuality)}
+                >
+                  <option value="high">Alta (recomendada)</option>
+                  <option value="medium">Media</option>
+                  <option value="low">Baja (archivo más liviano)</option>
+                </select>
+              </>
+            )}
+            <label className="signature-label" htmlFor="html-ocr-input">
+              <input
+                id="html-ocr-input"
+                type="checkbox"
+                checked={htmlUseOcr}
+                onChange={(event) => setHtmlUseOcr(event.target.checked)}
+                style={{ marginRight: "0.5rem" }}
+              />
+              OCR para páginas escaneadas en español (más lento)
+            </label>
+            <p className="compression-warning">
+              {htmlMode === "faithful"
+                ? "El texto se coloca sobre las imágenes y gráficos de cada página, que quedan como fondo. En escaneados, con OCR el texto reconocido pasa como texto seleccionable."
+                : "Se reconstruye el contenido como texto web; las imágenes y gráficos no se incluyen."}
+            </p>
+            <div className="dialog-footer">
+              <button type="button" onClick={() => setHtmlDialogOpen(false)}>Cancelar</button>
               <button type="submit" className="dialog-primary">Exportar y abrir</button>
             </div>
           </form>

@@ -44,7 +44,7 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-async function renderPage(
+export async function renderPage(
   page: any,
   scale: number,
   operationsFilter?: (operationIndex: number) => boolean
@@ -66,13 +66,13 @@ async function renderPage(
   return { canvas, context };
 }
 
-function releaseCanvas(canvas: HTMLCanvasElement | null): void {
+export function releaseCanvas(canvas: HTMLCanvasElement | null): void {
   if (!canvas) return;
   canvas.width = 0;
   canvas.height = 0;
 }
 
-async function canvasToData(canvas: HTMLCanvasElement, format: "png" | "jpeg", quality: number): Promise<string> {
+export async function canvasToData(canvas: HTMLCanvasElement, format: "png" | "jpeg", quality: number): Promise<string> {
   const mimeType = format === "png" ? "image/png" : "image/jpeg";
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((value) => {
@@ -92,7 +92,7 @@ async function pageImage(page: any, scale: number, format: "png" | "jpeg", quali
   }
 }
 
-async function textOperatorIndexes(page: any): Promise<Set<number>> {
+export async function textOperatorIndexes(page: any): Promise<Set<number>> {
   const list = await page.getOperatorList();
   const ops = pdfjs.OPS as Record<string, number>;
   const textOps = new Set<number>([
@@ -113,8 +113,10 @@ interface PixelBox { left: number; right: number; top: number; bottom: number }
 function pixelBox(item: RawItem, scale: number, width: number, height: number): PixelBox | null {
   const left = Math.max(0, Math.floor((item.x - 1) * scale));
   const right = Math.min(width, Math.ceil((item.x + item.width + 1) * scale));
-  const top = Math.max(0, Math.floor((item.y - item.size * 1.0) * scale));
-  const bottom = Math.min(height, Math.ceil((item.y + item.size * 0.25) * scale));
+  // RawItem.y es la línea base medida desde el borde inferior de la página.
+  const baseline = height / scale - item.y;
+  const top = Math.max(0, Math.floor((baseline - item.size * 0.95) * scale));
+  const bottom = Math.min(height, Math.ceil((baseline + item.size * 0.28) * scale));
   return right > left && bottom > top ? { left, right, top, bottom } : null;
 }
 
@@ -123,7 +125,7 @@ function hex(red: number, green: number, blue: number): string {
 }
 
 // Color del texto nativo: píxel que más cambia entre la página completa y la página sin texto.
-function colorNativeText(full: CanvasRenderingContext2D, withoutText: CanvasRenderingContext2D, items: RawItem[], scale: number): void {
+export function colorNativeText(full: CanvasRenderingContext2D, withoutText: CanvasRenderingContext2D, items: RawItem[], scale: number): void {
   const { width, height } = full.canvas;
   const fullData = full.getImageData(0, 0, width, height).data;
   const baseData = withoutText.getImageData(0, 0, width, height).data;
@@ -149,7 +151,7 @@ function colorNativeText(full: CanvasRenderingContext2D, withoutText: CanvasRend
 }
 
 // En páginas escaneadas el texto está dentro de la imagen: se borra solo donde el OCR lo reconoció.
-function eraseOcrText(context: CanvasRenderingContext2D, items: RawItem[], scale: number): void {
+export function eraseOcrText(context: CanvasRenderingContext2D, items: RawItem[], scale: number): void {
   const { width, height } = context.canvas;
   const data = context.getImageData(0, 0, width, height).data;
   for (const item of items) {
@@ -220,7 +222,7 @@ export function textBoxForSlide(
 ): { x: number; y: number; w: number; h: number; fontSize: number } | null {
   const fitted = fittedPage(pageWidth, pageHeight, slideWidth, slideHeight);
   const x = fitted.x + item.x * fitted.scale;
-  const y = fitted.y + (item.y - item.size) * fitted.scale;
+  const y = fitted.y + (pageHeight - item.y - item.size * 0.95) * fitted.scale;
   const right = Math.min(fitted.x + fitted.width, x + item.width * fitted.scale);
   const bottom = Math.min(fitted.y + fitted.height, y + item.size * fitted.scale * 1.35);
   const left = Math.max(fitted.x, x);
@@ -235,7 +237,7 @@ export function textBoxForSlide(
   };
 }
 
-async function extractText(page: any): Promise<RawItem[]> {
+export async function extractText(page: any): Promise<RawItem[]> {
   const viewport = page.getViewport({ scale: 1 });
   const content = await page.getTextContent();
   const viewportScale = Math.hypot(viewport.transform[0], viewport.transform[1]);
@@ -259,7 +261,7 @@ async function extractText(page: any): Promise<RawItem[]> {
     items.push({
       str: entry.str,
       x: matrix[4],
-      y: viewport.height - matrix[5] + Math.max(1, entry.height * viewportScale * 0.15),
+      y: viewport.height - matrix[5],
       width: Math.max(1, Math.abs(entry.width) * viewportScale),
       size: Math.max(5, Math.hypot(matrix[2], matrix[3]) || entry.height * viewportScale || 10),
       bold: /bold|black|heavy|semibold/i.test(rawFontName ?? ""),

@@ -34,6 +34,7 @@ interface ToolbarProps {
   onExportWord: () => void;
   onExportExcel: () => void;
   onExportPowerPoint: () => void;
+  onExportHtml: () => void;
   onExportImage: (format: PageImageFormat) => void;
   onCheckUpdates: () => void;
   hasDocument: boolean;
@@ -52,6 +53,7 @@ function Toolbar({
   onExportWord,
   onExportExcel,
   onExportPowerPoint,
+  onExportHtml,
   onExportImage,
   onCheckUpdates,
   hasDocument,
@@ -224,9 +226,9 @@ function Toolbar({
                 <button type="button" role="menuitem" onClick={() => selectExport(() => onExportImage("jpg"))}>JPG</button>
               </div>
             )}
-            <button type="button" role="menuitem" disabled title="Próximamente">
+            <button type="button" role="menuitem" onClick={() => selectExport(onExportHtml)}>
               <Globe size={18} aria-hidden="true" />
-              <span>Página web HTML <small>Próximamente</small></span>
+              <span>Página web HTML</span>
             </button>
             <button type="button" role="menuitem" disabled title="Próximamente">
               <MoreHorizontal size={18} aria-hidden="true" />

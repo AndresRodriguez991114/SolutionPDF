@@ -33,6 +33,7 @@ interface ToolbarProps {
   onPrint: () => void;
   onExportWord: () => void;
   onExportExcel: () => void;
+  onExportPowerPoint: () => void;
   onExportImage: (format: PageImageFormat) => void;
   onCheckUpdates: () => void;
   hasDocument: boolean;
@@ -50,6 +51,7 @@ function Toolbar({
   onPrint,
   onExportWord,
   onExportExcel,
+  onExportPowerPoint,
   onExportImage,
   onCheckUpdates,
   hasDocument,
@@ -201,9 +203,9 @@ function Toolbar({
               <FileSpreadsheet size={18} aria-hidden="true" />
               <span>Hoja de cálculo Excel</span>
             </button>
-            <button type="button" role="menuitem" disabled title="Próximamente">
+            <button type="button" role="menuitem" onClick={() => selectExport(onExportPowerPoint)}>
               <Presentation size={18} aria-hidden="true" />
-              <span>Microsoft PowerPoint <small>Próximamente</small></span>
+              <span>Microsoft PowerPoint</span>
             </button>
             <button
               type="button"

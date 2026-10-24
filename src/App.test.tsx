@@ -348,6 +348,20 @@ describe("App document flows", () => {
     expect(screen.getByText(/una hoja por página/)).toBeTruthy();
   });
 
+  it("opens both PowerPoint export modes for an open document", async () => {
+    render(<App />);
+
+    clickOpenPdf();
+    await screen.findByTestId("pdf-viewer");
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Archivo PDF" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Microsoft PowerPoint" }));
+
+    expect(screen.getByRole("dialog", { name: "Exportar a PowerPoint" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /IMAGEN IDÉNTICA/ })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /TEXTO EDITABLE/ })).toBeTruthy();
+    expect(screen.getByLabelText("Páginas (vacío = todas)")).toBeTruthy();
+  });
+
   it("shows an explicit error when opening a PDF fails", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,

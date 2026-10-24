@@ -29,6 +29,8 @@ import Toolbar from "./components/Toolbar";
 import { exportPdfToWord } from "./PDF/exportWord";
 import type { WordExportMode, WordExportQuality } from "./PDF/exportWord";
 import { exportPdfToExcel } from "./PDF/exportExcel";
+import { exportPdfToPowerPoint } from "./PDF/exportPowerPoint";
+import type { PowerPointExportMode, PowerPointExportQuality } from "./PDF/exportPowerPoint";
 import PagesPanel from "./components/PagesPanel";
 import UserManual from "./components/UserManual";
 import StatusBar from "./components/StatusBar";
@@ -209,6 +211,13 @@ function App() {
   const [excelUseOcr, setExcelUseOcr] = useState(false);
   const [excelProgress, setExcelProgress] = useState<CompressionProgress | null>(null);
   const excelAbortRef = useRef<AbortController | null>(null);
+  const [powerPointDialogOpen, setPowerPointDialogOpen] = useState(false);
+  const [powerPointMode, setPowerPointMode] = useState<PowerPointExportMode>("image");
+  const [powerPointQuality, setPowerPointQuality] = useState<PowerPointExportQuality>("high");
+  const [powerPointUseOcr, setPowerPointUseOcr] = useState(false);
+  const [powerPointPages, setPowerPointPages] = useState("");
+  const [powerPointProgress, setPowerPointProgress] = useState<CompressionProgress | null>(null);
+  const powerPointAbortRef = useRef<AbortController | null>(null);
   const [splitDialogOpen, setSplitDialogOpen] = useState(false);
   const [splitRanges, setSplitRanges] = useState("");
   const [splitError, setSplitError] = useState<string | null>(null);
@@ -647,6 +656,14 @@ function App() {
     setExcelDialogOpen(true);
   }
 
+  function handleExportPowerPoint() {
+    if (!pdfBytesRef.current) return;
+    setPowerPointPages("");
+    setPowerPointUseOcr(false);
+    setPowerPointMode("image");
+    setPowerPointDialogOpen(true);
+  }
+
   function encodePathHex(text: string): string {
     return Array.from(new TextEncoder().encode(text), (value) => value.toString(16).padStart(2, "0")).join("");
   }
@@ -805,6 +822,76 @@ function App() {
   function handleCancelExcelExport() {
     excelAbortRef.current?.abort();
     excelAbortRef.current = null;
+  }
+
+  async function handleRunPowerPointExport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const current = pdfBytesRef.current;
+    if (!current) return;
+
+    let pageNumbers: number[] | undefined;
+    if (powerPointPages.trim()) {
+      try {
+        pageNumbers = parsePageRanges(powerPointPages, pageCount).flatMap(({ start, end }) =>
+          Array.from({ length: end - start + 1 }, (_, offset) => start + offset)
+        );
+      } catch (error) {
+        notify("Páginas no válidas", errorMessage(error));
+        return;
+      }
+    }
+
+    const baseName = (fileName || "documento.pdf").replace(/\.pdf$/i, "");
+    const abortController = new AbortController();
+    powerPointAbortRef.current = abortController;
+    try {
+      const path = await saveDialog({
+        defaultPath: `${baseName}.pptx`,
+        filters: [{ name: "Presentación de PowerPoint", extensions: ["pptx"] }],
+      });
+      if (!path) return;
+      setPowerPointDialogOpen(false);
+      setPowerPointProgress({ current: 0, total: pageNumbers?.length ?? pageCount });
+      const source = await applyAnnotationsToPdf(current, annotations);
+      const { bytes, pagesWithoutText, ocrPages } = await exportPdfToPowerPoint(source, {
+        mode: powerPointMode,
+        quality: powerPointQuality,
+        enableOcr: powerPointUseOcr,
+        signal: abortController.signal,
+        pageNumbers,
+        onProgress: (done, total) => setPowerPointProgress({ current: done, total }),
+      });
+      await saveBinaryExport(path, bytes);
+      setStatus("Exportado a PowerPoint");
+      try {
+        await invoke("open_exported_file", { path });
+      } catch (error) {
+        notify("Se exportó a PowerPoint, pero no se pudo abrir el archivo", errorMessage(error));
+      }
+      if (powerPointMode === "editable" && pagesWithoutText.length > 0) {
+        notify(
+          "Páginas sin texto editable",
+          ocrPages.length > 0
+            ? `Se aplicó OCR en: ${ocrPages.join(", ")}. Sin texto editable: ${pagesWithoutText.filter((page) => !ocrPages.includes(page)).join(", ") || "ninguna"}.`
+            : `No se encontró texto seleccionable en las páginas ${pagesWithoutText.join(", ")}. Activa OCR para intentar reconocer páginas escaneadas.`
+        );
+      }
+    } catch (error) {
+      if (abortController.signal.aborted) {
+        setStatus("Exportación cancelada");
+      } else {
+        setStatus("Listo");
+        notify("No se pudo exportar a PowerPoint", errorMessage(error));
+      }
+    } finally {
+      powerPointAbortRef.current = null;
+      setPowerPointProgress(null);
+    }
+  }
+
+  function handleCancelPowerPointExport() {
+    powerPointAbortRef.current?.abort();
+    powerPointAbortRef.current = null;
   }
 
   async function handlePageAction(action: PageAction, pageNumber: number) {
@@ -1594,6 +1681,7 @@ function App() {
         onPrint={handlePrint}
         onExportWord={handleExportWord}
         onExportExcel={handleExportExcel}
+        onExportPowerPoint={handleExportPowerPoint}
         onExportImage={(format) => void handleExportAllPagesAsImages(format)}
         onCheckUpdates={handleCheckUpdates}
         hasDocument={Boolean(pdfFile)}
@@ -1822,6 +1910,33 @@ function App() {
         </aside>
       )}
 
+      {powerPointProgress && (
+        <aside className="merge-progress" role="status" aria-live="polite">
+          <div className="merge-progress-heading">
+            <LoaderCircle className="merge-progress-spinner" size={17} aria-hidden="true" />
+            <strong>Exportando a PowerPoint</strong>
+          </div>
+          <p>
+            {powerPointProgress.current > 0
+              ? `Procesando página ${powerPointProgress.current} de ${powerPointProgress.total}`
+              : "Preparando diapositivas..."}
+          </p>
+          <div
+            className="merge-progress-track"
+            role="progressbar"
+            aria-label="Páginas exportadas a PowerPoint"
+            aria-valuemin={0}
+            aria-valuemax={powerPointProgress.total}
+            aria-valuenow={powerPointProgress.current}
+          >
+            <span style={{ width: `${powerPointProgress.total ? (powerPointProgress.current / powerPointProgress.total) * 100 : 0}%` }} />
+          </div>
+          <div className="dialog-footer" style={{ marginTop: "0.75rem" }}>
+            <button type="button" onClick={handleCancelPowerPointExport}>Cancelar exportación</button>
+          </div>
+        </aside>
+      )}
+
       {wordDialogOpen && (
         <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setWordDialogOpen(false); }}>
           <form className="app-dialog compression-dialog" role="dialog" aria-modal="true" aria-labelledby="word-dialog-title" onSubmit={(event) => void handleRunWordExport(event)}>
@@ -1912,6 +2027,74 @@ function App() {
             <p className="compression-warning">El PDF no siempre contiene tablas estructuradas; la conversión reconstruye celdas según la posición del texto. Las páginas escaneadas necesitan OCR para extraer contenido.</p>
             <div className="dialog-footer">
               <button type="button" onClick={() => setExcelDialogOpen(false)}>Cancelar</button>
+              <button type="submit" className="dialog-primary">Exportar y abrir</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {powerPointDialogOpen && (
+        <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPowerPointDialogOpen(false); }}>
+          <form className="app-dialog compression-dialog" role="dialog" aria-modal="true" aria-labelledby="powerpoint-dialog-title" onSubmit={(event) => void handleRunPowerPointExport(event)}>
+            <h2 id="powerpoint-dialog-title">Exportar a PowerPoint</h2>
+            <p>Elige si prefieres conservar la apariencia de cada página o editar el texto en las diapositivas. Al terminar, se intentará abrir la presentación.</p>
+            <div className="compression-options" role="radiogroup" aria-label="Modo de exportación de PowerPoint">
+              {([
+                { id: "image", title: "IMAGEN IDÉNTICA", description: "Una imagen por diapositiva; máxima fidelidad visual" },
+                { id: "editable", title: "TEXTO EDITABLE", description: "Texto como texto; imágenes y gráficos se conservan" },
+              ] as const).map((option) => (
+                <label className={`compression-option ${powerPointMode === option.id ? "selected" : ""}`} key={option.id}>
+                  <input
+                    type="radio"
+                    name="powerpoint-mode"
+                    value={option.id}
+                    checked={powerPointMode === option.id}
+                    onChange={() => setPowerPointMode(option.id)}
+                  />
+                  <span className="compression-option-copy">
+                    <strong>{option.title}</strong>
+                    <span>{option.description}</span>
+                  </span>
+                  {powerPointMode === option.id && <Check className="compression-option-check" size={20} aria-hidden="true" />}
+                </label>
+              ))}
+            </div>
+            <label className="signature-label" htmlFor="powerpoint-pages-input">Páginas (vacío = todas)</label>
+            <input
+              id="powerpoint-pages-input"
+              className="password-input"
+              value={powerPointPages}
+              placeholder={`Ej.: 1-3, 5 (el documento tiene ${pageCount})`}
+              onChange={(event) => setPowerPointPages(event.target.value)}
+            />
+            <label className="signature-label" htmlFor="powerpoint-quality-input">Calidad de imágenes</label>
+            <select
+              id="powerpoint-quality-input"
+              className="password-input"
+              value={powerPointQuality}
+              onChange={(event) => setPowerPointQuality(event.target.value as PowerPointExportQuality)}
+            >
+              <option value="high">Alta (recomendada)</option>
+              <option value="medium">Media</option>
+              <option value="low">Baja (archivo más liviano)</option>
+            </select>
+            {powerPointMode === "editable" && (
+              <>
+                <label className="signature-label" htmlFor="powerpoint-ocr-input">
+                  <input
+                    id="powerpoint-ocr-input"
+                    type="checkbox"
+                    checked={powerPointUseOcr}
+                    onChange={(event) => setPowerPointUseOcr(event.target.checked)}
+                    style={{ marginRight: "0.5rem" }}
+                  />
+                  OCR para páginas escaneadas en español (más lento)
+                </label>
+                <p className="compression-warning">El texto del PDF pasa como texto editable y las imágenes y gráficos quedan como imagen de fondo. En páginas escaneadas, con OCR el texto reconocido pasa como texto y el resto queda como imagen; sin OCR la página queda como imagen.</p>
+              </>
+            )}
+            <div className="dialog-footer">
+              <button type="button" onClick={() => setPowerPointDialogOpen(false)}>Cancelar</button>
               <button type="submit" className="dialog-primary">Exportar y abrir</button>
             </div>
           </form>

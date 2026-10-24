@@ -24,6 +24,7 @@ function renderToolbar(hasDocument = true) {
       onPrint={vi.fn()}
       onExportWord={vi.fn()}
       onExportExcel={vi.fn()}
+      onExportPowerPoint={vi.fn()}
       onExportImage={vi.fn()}
       onCheckUpdates={vi.fn()}
       hasDocument={hasDocument}
@@ -56,7 +57,7 @@ describe("Toolbar", () => {
     expect(screen.getByRole("menu", { name: "Formatos de exportación" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Microsoft Word" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Hoja de cálculo Excel" })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /Microsoft PowerPoint/ }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("menuitem", { name: "Microsoft PowerPoint" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("opens the Word export from the consolidated format menu", () => {
@@ -73,6 +74,7 @@ describe("Toolbar", () => {
       onPrint={vi.fn()}
       onExportWord={onExportWord}
       onExportExcel={vi.fn()}
+      onExportPowerPoint={vi.fn()}
       onExportImage={vi.fn()}
       onCheckUpdates={vi.fn()}
       hasDocument
@@ -82,6 +84,33 @@ describe("Toolbar", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Microsoft Word" }));
 
     expect(onExportWord).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("menu", { name: "Formatos de exportación" })).toBeNull();
+  });
+
+  it("opens PowerPoint export from the consolidated format menu", () => {
+    const onExportPowerPoint = vi.fn();
+    render(<Toolbar
+      onOpenPdf={vi.fn()}
+      onEditPdf={vi.fn()}
+      onSign={vi.fn()}
+      onToolChange={vi.fn()}
+      activeTool={null}
+      onMergePdf={vi.fn()}
+      mergeInProgress={false}
+      onOptimizePdf={vi.fn()}
+      onPrint={vi.fn()}
+      onExportWord={vi.fn()}
+      onExportExcel={vi.fn()}
+      onExportPowerPoint={onExportPowerPoint}
+      onExportImage={vi.fn()}
+      onCheckUpdates={vi.fn()}
+      hasDocument
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Archivo PDF" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Microsoft PowerPoint" }));
+
+    expect(onExportPowerPoint).toHaveBeenCalledOnce();
     expect(screen.queryByRole("menu", { name: "Formatos de exportación" })).toBeNull();
   });
 
@@ -99,6 +128,7 @@ describe("Toolbar", () => {
       onPrint={vi.fn()}
       onExportWord={vi.fn()}
       onExportExcel={vi.fn()}
+      onExportPowerPoint={vi.fn()}
       onExportImage={onExportImage}
       onCheckUpdates={vi.fn()}
       hasDocument

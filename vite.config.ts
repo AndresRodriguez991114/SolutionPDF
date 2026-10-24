@@ -44,6 +44,11 @@ export default defineConfig(() => ({
               priority: 15,
             },
             {
+              name: "presentation",
+              test: /node_modules[\\/]pptxgenjs[\\/]/,
+              priority: 15,
+            },
+            {
               name: "pdf-lib",
               test: /node_modules[\\/]pdf-lib[\\/]/,
               priority: 10,

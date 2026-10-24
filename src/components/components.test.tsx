@@ -23,6 +23,8 @@ function renderToolbar(hasDocument = true) {
       onOptimizePdf={vi.fn()}
       onPrint={vi.fn()}
       onExportWord={vi.fn()}
+      onExportExcel={vi.fn()}
+      onExportImage={vi.fn()}
       onCheckUpdates={vi.fn()}
       hasDocument={hasDocument}
     />
@@ -38,6 +40,7 @@ describe("Toolbar", () => {
     expect(screen.getByRole("button", { name: "Firmar" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByRole("button", { name: "Comprimir PDF" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByRole("button", { name: "Imprimir" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Exportar Archivo PDF" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByRole("button", { name: "Abrir PDF" }).hasAttribute("disabled")).toBe(false);
   });
 
@@ -47,6 +50,66 @@ describe("Toolbar", () => {
     expect(screen.getByRole("toolbar", { name: "Herramientas del documento" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Unir PDF" }).hasAttribute("disabled")).toBe(false);
     expect(screen.getByRole("button", { name: "Buscar actualizaciones" }).hasAttribute("disabled")).toBe(false);
+    const exportButton = screen.getByRole("button", { name: "Exportar Archivo PDF" });
+    expect(exportButton.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(exportButton);
+    expect(screen.getByRole("menu", { name: "Formatos de exportación" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Microsoft Word" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Hoja de cálculo Excel" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Microsoft PowerPoint/ }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("opens the Word export from the consolidated format menu", () => {
+    const onExportWord = vi.fn();
+    render(<Toolbar
+      onOpenPdf={vi.fn()}
+      onEditPdf={vi.fn()}
+      onSign={vi.fn()}
+      onToolChange={vi.fn()}
+      activeTool={null}
+      onMergePdf={vi.fn()}
+      mergeInProgress={false}
+      onOptimizePdf={vi.fn()}
+      onPrint={vi.fn()}
+      onExportWord={onExportWord}
+      onExportExcel={vi.fn()}
+      onExportImage={vi.fn()}
+      onCheckUpdates={vi.fn()}
+      hasDocument
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Archivo PDF" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Microsoft Word" }));
+
+    expect(onExportWord).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("menu", { name: "Formatos de exportación" })).toBeNull();
+  });
+
+  it("offers PNG and JPG from the image export option", () => {
+    const onExportImage = vi.fn();
+    render(<Toolbar
+      onOpenPdf={vi.fn()}
+      onEditPdf={vi.fn()}
+      onSign={vi.fn()}
+      onToolChange={vi.fn()}
+      activeTool={null}
+      onMergePdf={vi.fn()}
+      mergeInProgress={false}
+      onOptimizePdf={vi.fn()}
+      onPrint={vi.fn()}
+      onExportWord={vi.fn()}
+      onExportExcel={vi.fn()}
+      onExportImage={onExportImage}
+      onCheckUpdates={vi.fn()}
+      hasDocument
+    />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Archivo PDF" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Imagen" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "PNG" }));
+
+    expect(onExportImage).toHaveBeenCalledWith("png");
+    expect(screen.queryByRole("menu", { name: "Formatos de exportación" })).toBeNull();
   });
 });
 

@@ -39,6 +39,11 @@ export default defineConfig(() => ({
               priority: 20,
             },
             {
+              name: "spreadsheet",
+              test: /node_modules[\\/]exceljs[\\/]/,
+              priority: 15,
+            },
+            {
               name: "pdf-lib",
               test: /node_modules[\\/]pdf-lib[\\/]/,
               priority: 10,

@@ -142,6 +142,46 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .tool-button.active { color: #9f3f35; background: #f8ece9; }
 .tool-button.active svg { color: #b8493c; }
 .tool-button:disabled, .update-button:disabled { cursor: not-allowed; opacity: .58; }
+.export-menu-anchor { position: relative; display: flex; flex: 0 0 116px; }
+.tool-button.export-trigger { position: relative; flex: 1 1 auto; gap: 3px; padding: 4px 15px 4px 5px; font-size: 10px; line-height: 1.15; }
+.tool-button.export-trigger > span { max-width: 82px; text-align: center; }
+.tool-button.export-trigger svg:first-child { color: #b8493c; }
+.export-trigger-chevron { position: absolute; right: 3px; bottom: 11px; }
+.export-menu-anchor .export-format-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 5px);
+  left: 0;
+  width: 252px;
+  padding: 5px;
+  background: #fff;
+  border: 1px solid #dfe3df;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(32, 42, 39, .18);
+}
+.export-format-menu button {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  color: #38413e;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.export-format-menu button:hover:not(:disabled) { background: #f2f4f1; }
+.export-format-menu button:disabled { color: #a8adaa; cursor: not-allowed; }
+.export-format-menu button > svg { flex: 0 0 18px; color: #66716d; }
+.export-format-menu button small { margin-left: auto; color: #959c99; font-size: 9px; }
+.export-submenu-chevron { margin-left: auto; transform: rotate(-90deg); }
+.export-image-options { margin: 0 0 2px 28px; padding-left: 6px; border-left: 1px solid #e4e7e3; }
+.export-image-options button { min-height: 32px; }
 .toolbar-spacer { flex: 1; }
 .update-button {
   display: flex;
@@ -399,6 +439,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .menu button { padding: 6px; }
   .toolbar { padding-inline: 6px; }
   .tool-button { flex-basis: 72px; font-size: 10px; }
+  .export-menu-anchor { flex-basis: 104px; }
+  .tool-button.export-trigger { flex-basis: 104px; }
   .update-button { width: 38px; justify-content: center; overflow: hidden; padding: 8px; white-space: nowrap; }
   .update-button span { display: none; }
 }

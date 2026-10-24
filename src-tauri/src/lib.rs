@@ -76,12 +76,14 @@ fn save_binary_file(request: tauri::ipc::Request<'_>) -> Result<(), String> {
         .ok_or_else(|| "No se recibió la ruta de destino.".to_string())?;
     let path = decode_hex_utf8(encoded)?;
     let output = Path::new(&path);
-    let is_docx = output
+    let is_supported_export = output
         .extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("docx"));
-    if !is_docx {
-        return Err("Solo se permite guardar archivos .docx con este comando.".into());
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("docx") || extension.eq_ignore_ascii_case("xlsx")
+        });
+    if !is_supported_export {
+        return Err("Solo se permite guardar archivos .docx o .xlsx con este comando.".into());
     }
     let bytes = match request.body() {
         tauri::ipc::InvokeBody::Raw(bytes) => bytes.as_slice(),
@@ -95,12 +97,14 @@ fn save_binary_file(request: tauri::ipc::Request<'_>) -> Result<(), String> {
 #[tauri::command]
 fn open_exported_file(path: String) -> Result<(), String> {
     let target = Path::new(&path);
-    let is_word = target
+    let is_supported_export = target
         .extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("docx"));
-    if !is_word || !target.is_file() {
-        return Err("Solo se pueden abrir documentos Word exportados.".into());
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("docx") || extension.eq_ignore_ascii_case("xlsx")
+        });
+    if !is_supported_export || !target.is_file() {
+        return Err("Solo se pueden abrir documentos Word o Excel exportados.".into());
     }
 
     let program = if cfg!(target_os = "windows") {

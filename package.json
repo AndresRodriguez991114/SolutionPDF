@@ -18,6 +18,7 @@
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.13.1",
     "docx": "^9.13.0",
+    "exceljs": "^4.4.0",
     "lucide-react": "^1.48.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.3.289",
@@ -38,5 +39,8 @@
     "vite": "^8.0.16",
     "vite-plugin-static-copy": "^4.1.1",
     "vitest": "^5.0.4"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }

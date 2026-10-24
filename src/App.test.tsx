@@ -334,6 +334,20 @@ describe("App document flows", () => {
     expect(screen.getByText(/Las páginas se guardarán como imágenes/)).toBeTruthy();
   });
 
+  it("opens Excel export options for an open document", async () => {
+    render(<App />);
+
+    clickOpenPdf();
+    await screen.findByTestId("pdf-viewer");
+    fireEvent.click(screen.getByRole("button", { name: "Exportar Archivo PDF" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hoja de cálculo Excel" }));
+
+    expect(screen.getByRole("dialog", { name: "Exportar a Excel" })).toBeTruthy();
+    expect(screen.getByLabelText("Páginas (vacío = todas)")).toBeTruthy();
+    expect(screen.getByLabelText(/OCR para páginas escaneadas en español/)).toBeTruthy();
+    expect(screen.getByText(/una hoja por página/)).toBeTruthy();
+  });
+
   it("shows an explicit error when opening a PDF fails", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,

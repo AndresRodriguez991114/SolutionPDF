@@ -28,6 +28,7 @@ import PdfViewer from "./PDF/PdfViewer";
 import Toolbar from "./components/Toolbar";
 import { exportPdfToWord } from "./PDF/exportWord";
 import type { WordExportMode, WordExportQuality } from "./PDF/exportWord";
+import { exportPdfToExcel } from "./PDF/exportExcel";
 import PagesPanel from "./components/PagesPanel";
 import UserManual from "./components/UserManual";
 import StatusBar from "./components/StatusBar";
@@ -203,6 +204,11 @@ function App() {
   const [wordPages, setWordPages] = useState("");
   const [wordProgress, setWordProgress] = useState<CompressionProgress | null>(null);
   const wordAbortRef = useRef<AbortController | null>(null);
+  const [excelDialogOpen, setExcelDialogOpen] = useState(false);
+  const [excelPages, setExcelPages] = useState("");
+  const [excelUseOcr, setExcelUseOcr] = useState(false);
+  const [excelProgress, setExcelProgress] = useState<CompressionProgress | null>(null);
+  const excelAbortRef = useRef<AbortController | null>(null);
   const [splitDialogOpen, setSplitDialogOpen] = useState(false);
   const [splitRanges, setSplitRanges] = useState("");
   const [splitError, setSplitError] = useState<string | null>(null);
@@ -634,15 +640,22 @@ function App() {
     setWordDialogOpen(true);
   }
 
+  function handleExportExcel() {
+    if (!pdfBytesRef.current) return;
+    setExcelPages("");
+    setExcelUseOcr(false);
+    setExcelDialogOpen(true);
+  }
+
   function encodePathHex(text: string): string {
     return Array.from(new TextEncoder().encode(text), (value) => value.toString(16).padStart(2, "0")).join("");
   }
 
-  async function saveBinaryWord(path: string, bytes: Uint8Array): Promise<void> {
+  async function saveBinaryExport(path: string, bytes: Uint8Array): Promise<void> {
     try {
       await invoke("save_binary_file", bytes, { headers: { "x-file-path-hex": encodePathHex(path) } });
     } catch (error) {
-      console.warn("SolutionsPDF: no se pudo usar save_binary_file, se usará save_pdf", error);
+      console.warn("SolutionsPDF: no se pudo usar save_binary_file, se usará el guardado JSON", error);
       await invoke("save_pdf", { path, bytes: Array.from(bytes) });
     }
   }
@@ -684,7 +697,7 @@ function App() {
         pageNumbers,
         onProgress: (done, total) => setWordProgress({ current: done, total }),
       });
-      await saveBinaryWord(path, bytes);
+      await saveBinaryExport(path, bytes);
       setStatus("Exportado a Word");
       try {
         await invoke("open_exported_file", { path });
@@ -718,6 +731,80 @@ function App() {
   function handleCancelWordExport() {
     wordAbortRef.current?.abort();
     wordAbortRef.current = null;
+  }
+
+  async function handleRunExcelExport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const current = pdfBytesRef.current;
+    if (!current) return;
+
+    let pageNumbers: number[] | undefined;
+    if (excelPages.trim()) {
+      try {
+        pageNumbers = parsePageRanges(excelPages, pageCount).flatMap(({ start, end }) =>
+          Array.from({ length: end - start + 1 }, (_, offset) => start + offset)
+        );
+      } catch (error) {
+        notify("Páginas no válidas", errorMessage(error));
+        return;
+      }
+    }
+
+    const baseName = (fileName || "documento.pdf").replace(/\.pdf$/i, "");
+    const abortController = new AbortController();
+    excelAbortRef.current = abortController;
+    try {
+      const path = await saveDialog({
+        defaultPath: `${baseName}.xlsx`,
+        filters: [{ name: "Libro de Excel", extensions: ["xlsx"] }],
+      });
+      if (!path) return;
+      setExcelDialogOpen(false);
+      setExcelProgress({ current: 0, total: pageNumbers?.length ?? pageCount });
+      const source = await applyAnnotationsToPdf(current, annotations);
+      const { bytes, pagesWithoutText, ocrPages, detectedTablePages, substitutedFonts } = await exportPdfToExcel(source, {
+        pageNumbers,
+        enableOcr: excelUseOcr,
+        signal: abortController.signal,
+        onProgress: (done, total) => setExcelProgress({ current: done, total }),
+      });
+      await saveBinaryExport(path, bytes);
+      setStatus("Exportado a Excel");
+      try {
+        await invoke("open_exported_file", { path });
+      } catch (error) {
+        notify("Se exportó a Excel, pero no se pudo abrir el archivo", errorMessage(error));
+      }
+      if (pagesWithoutText.length > 0) {
+        notify(
+          "Páginas sin texto seleccionable",
+          ocrPages.length > 0
+            ? `Se aplicó OCR en: ${ocrPages.join(", ")}. Sin texto extraído: ${pagesWithoutText.filter((page) => !ocrPages.includes(page)).join(", ") || "ninguna"}.`
+            : `No se encontró texto en las páginas ${pagesWithoutText.join(", ")}. Activa OCR para intentar reconocer páginas escaneadas.`
+        );
+      }
+      if (detectedTablePages.length === 0) {
+        notify("No se detectaron tablas", "Se exportó el texto encontrado en una columna por página. Comprueba el resultado y ajusta las celdas en Excel si hace falta.");
+      }
+      if (substitutedFonts.length > 0) {
+        notify("Fuentes sustituidas", `Se usaron fuentes similares para nombres de fuente no reconocidos: ${substitutedFonts.slice(0, 8).join(", ")}${substitutedFonts.length > 8 ? "…" : ""}.`);
+      }
+    } catch (error) {
+      if (abortController.signal.aborted) {
+        setStatus("Exportación cancelada");
+      } else {
+        setStatus("Listo");
+        notify("No se pudo exportar a Excel", errorMessage(error));
+      }
+    } finally {
+      excelAbortRef.current = null;
+      setExcelProgress(null);
+    }
+  }
+
+  function handleCancelExcelExport() {
+    excelAbortRef.current?.abort();
+    excelAbortRef.current = null;
   }
 
   async function handlePageAction(action: PageAction, pageNumber: number) {
@@ -882,6 +969,14 @@ function App() {
     } catch (error) {
       notify("No se pudieron exportar las páginas como imágenes", errorMessage(error));
     }
+  }
+
+  async function handleExportAllPagesAsImages(format: PageImageFormat) {
+    if (pageCount < 1) return;
+    await handleExportPagesAsImages(
+      Array.from({ length: pageCount }, (_, index) => index + 1),
+      format
+    );
   }
 
   async function handleMovePages(pageNumbers: number[], targetPageNumber: number) {
@@ -1498,6 +1593,8 @@ function App() {
         onOptimizePdf={handleOptimizePdf}
         onPrint={handlePrint}
         onExportWord={handleExportWord}
+        onExportExcel={handleExportExcel}
+        onExportImage={(format) => void handleExportAllPagesAsImages(format)}
         onCheckUpdates={handleCheckUpdates}
         hasDocument={Boolean(pdfFile)}
       />
@@ -1698,6 +1795,33 @@ function App() {
         </aside>
       )}
 
+      {excelProgress && (
+        <aside className="merge-progress" role="status" aria-live="polite">
+          <div className="merge-progress-heading">
+            <LoaderCircle className="merge-progress-spinner" size={17} aria-hidden="true" />
+            <strong>Exportando a Excel</strong>
+          </div>
+          <p>
+            {excelProgress.current > 0
+              ? `Procesando página ${excelProgress.current} de ${excelProgress.total}`
+              : "Preparando páginas..."}
+          </p>
+          <div
+            className="merge-progress-track"
+            role="progressbar"
+            aria-label="Páginas exportadas a Excel"
+            aria-valuemin={0}
+            aria-valuemax={excelProgress.total}
+            aria-valuenow={excelProgress.current}
+          >
+            <span style={{ width: `${excelProgress.total ? (excelProgress.current / excelProgress.total) * 100 : 0}%` }} />
+          </div>
+          <div className="dialog-footer" style={{ marginTop: "0.75rem" }}>
+            <button type="button" onClick={handleCancelExcelExport}>Cancelar exportación</button>
+          </div>
+        </aside>
+      )}
+
       {wordDialogOpen && (
         <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setWordDialogOpen(false); }}>
           <form className="app-dialog compression-dialog" role="dialog" aria-modal="true" aria-labelledby="word-dialog-title" onSubmit={(event) => void handleRunWordExport(event)}>
@@ -1756,6 +1880,38 @@ function App() {
             </label>
             <div className="dialog-footer">
               <button type="button" onClick={() => setWordDialogOpen(false)}>Cancelar</button>
+              <button type="submit" className="dialog-primary">Exportar y abrir</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {excelDialogOpen && (
+        <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setExcelDialogOpen(false); }}>
+          <form className="app-dialog compression-dialog" role="dialog" aria-modal="true" aria-labelledby="excel-dialog-title" onSubmit={(event) => void handleRunExcelExport(event)}>
+            <h2 id="excel-dialog-title">Exportar a Excel</h2>
+            <p>Se creará una hoja por página. Las filas y columnas se detectan automáticamente; revisa y ajusta el resultado en Excel.</p>
+            <label className="signature-label" htmlFor="excel-pages-input">Páginas (vacío = todas)</label>
+            <input
+              id="excel-pages-input"
+              className="password-input"
+              value={excelPages}
+              placeholder={`Ej.: 1-3, 5 (el documento tiene ${pageCount})`}
+              onChange={(event) => setExcelPages(event.target.value)}
+            />
+            <label className="signature-label" htmlFor="excel-ocr-input">
+              <input
+                id="excel-ocr-input"
+                type="checkbox"
+                checked={excelUseOcr}
+                onChange={(event) => setExcelUseOcr(event.target.checked)}
+                style={{ marginRight: "0.5rem" }}
+              />
+              OCR para páginas escaneadas en español (más lento)
+            </label>
+            <p className="compression-warning">El PDF no siempre contiene tablas estructuradas; la conversión reconstruye celdas según la posición del texto. Las páginas escaneadas necesitan OCR para extraer contenido.</p>
+            <div className="dialog-footer">
+              <button type="button" onClick={() => setExcelDialogOpen(false)}>Cancelar</button>
               <button type="submit" className="dialog-primary">Exportar y abrir</button>
             </div>
           </form>

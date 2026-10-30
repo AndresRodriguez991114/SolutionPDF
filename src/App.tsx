@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
@@ -18,6 +18,12 @@ import {
   Trash2,
   WifiOff,
   LoaderCircle,
+  Pencil,
+  Upload,
+  Keyboard,
+  Image as ImageIcon,
+  PenTool,
+  Plus,
 } from "lucide-react";
 import { PDFDocument } from "pdf-lib";
 
@@ -98,6 +104,14 @@ interface CompressionProgress {
   current: number;
   total: number;
 }
+
+const signatureFontOptions = [
+  { id: "script", label: "Elegante", family: "'Segoe Script', 'Brush Script MT', cursive" },
+  { id: "hand", label: "Manuscrita", family: "'Lucida Handwriting', 'Comic Sans MS', cursive" },
+  { id: "serif", label: "Clásica", family: "Georgia, serif" },
+  { id: "formal", label: "Formal", family: "'Times New Roman', serif" },
+  { id: "modern", label: "Moderna", family: "'Trebuchet MS', sans-serif" },
+] as const;
 
 function openAnnotationDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -236,10 +250,18 @@ function App() {
   const [annotations, setAnnotations] = useState<PdfAnnotation[]>([]);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [signatureDialogOpen, setSignatureDialogOpen] = useState(false);
+  const [signatureEditorOpen, setSignatureEditorOpen] = useState(false);
   const [savedSignatures, setSavedSignatures] = useState(readSavedSignatures);
   const [activeSignature, setActiveSignature] = useState<string | null>(null);
   const signatureCanvasRef = useRef<HTMLCanvasElement>(null);
   const signatureDrawingRef = useRef(false);
+  const [signatureName, setSignatureName] = useState("");
+  const [signatureImageDataUrl, setSignatureImageDataUrl] = useState<string | null>(null);
+  const [signatureMode, setSignatureMode] = useState<"text" | "draw" | "image">("draw");
+  const [signatureText, setSignatureText] = useState("");
+  const [signatureFont, setSignatureFont] = useState<typeof signatureFontOptions[number]["family"]>(signatureFontOptions[0].family);
+  const [editingSignatureId, setEditingSignatureId] = useState<string | null>(null);
+  const [editingSignatureName, setEditingSignatureName] = useState("");
   const [properties, setProperties] = useState<{ title: string; body: string } | null>(null);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [preferences, setPreferences] = useState(readPreferences);
@@ -1312,28 +1334,91 @@ function App() {
     setStatus("Firma lista: haz clic en el lugar donde quieres colocarla");
   }
 
+  function persistSignatures(signatures: typeof savedSignatures) {
+    setSavedSignatures(signatures);
+    localStorage.setItem("solutionpdf.signatures", JSON.stringify(signatures));
+  }
+
+  function handleSignatureImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      notify("Imagen no compatible", "Selecciona un archivo de imagen válido.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        notify("No se pudo cargar la imagen", "El archivo no contiene una imagen legible.");
+        return;
+      }
+      const canvas = signatureCanvasRef.current;
+      canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+      setSignatureImageDataUrl(reader.result);
+      setSignatureMode("image");
+    };
+    reader.onerror = () => notify("No se pudo cargar la imagen", "Intenta con otro archivo.");
+    reader.readAsDataURL(file);
+  }
+
+  function drawTypedSignature(value: string) {
+    const canvas = signatureCanvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    if (!value.trim()) return;
+    context.fillStyle = "#202927";
+    context.font = `italic 58px ${signatureFont}`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(value.trim(), canvas.width / 2, canvas.height / 2);
+  }
+
+  useEffect(() => {
+    if (signatureMode === "text") drawTypedSignature(signatureText);
+  }, [signatureMode, signatureText, signatureFont]);
+
   function saveSignature() {
     const canvas = signatureCanvasRef.current;
     if (!canvas) return;
     const context = canvas.getContext("2d");
-    if (!context || !context.getImageData(0, 0, canvas.width, canvas.height).data.some((value, index) => index % 4 === 3 && value > 0)) {
-      notify("Firma vacía", "Dibuja tu firma antes de guardarla.");
+    const hasDrawing = Boolean(context?.getImageData(0, 0, canvas.width, canvas.height).data.some((value, index) => index % 4 === 3 && value > 0));
+    if (!signatureImageDataUrl && !hasDrawing) {
+      notify("Firma vacía", signatureMode === "text" ? "Escribe tu nombre antes de guardarlo." : "Dibuja o sube una firma antes de guardarla.");
       return;
     }
+    const dataUrl = signatureImageDataUrl || canvas.toDataURL("image/png");
     const entry = {
       id: `${Date.now()}`,
-      name: `Firma ${savedSignatures.length + 1}`,
-      dataUrl: canvas.toDataURL("image/png"),
+      name: signatureName.trim() || `Firma ${savedSignatures.length + 1}`,
+      dataUrl,
     };
-    const signatures = [...savedSignatures, entry];
-    setSavedSignatures(signatures);
-    localStorage.setItem("solutionpdf.signatures", JSON.stringify(signatures));
+    persistSignatures([...savedSignatures, entry]);
+    setSignatureName("");
+    setSignatureImageDataUrl(null);
+    setSignatureText("");
     chooseSignature(entry.dataUrl);
   }
 
   function clearSignatureCanvas() {
     const canvas = signatureCanvasRef.current;
     canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+    setSignatureImageDataUrl(null);
+    setSignatureText("");
+  }
+
+  function renameSignature(signatureId: string) {
+    const name = editingSignatureName.trim();
+    if (!name) {
+      notify("Nombre inválido", "Escribe un nombre para la firma.");
+      return;
+    }
+    persistSignatures(savedSignatures.map((signature) => (
+      signature.id === signatureId ? { ...signature, name } : signature
+    )));
+    setEditingSignatureId(null);
+    setEditingSignatureName("");
   }
 
   function handleUndo() {
@@ -1756,6 +1841,7 @@ function App() {
         onEditPdf={() => setEditDialogOpen(true)}
         onSign={() => {
           setActiveTool(null);
+          setSignatureEditorOpen(savedSignatures.length === 0);
           setSignatureDialogOpen(true);
         }}
         onToolChange={(tool) => {
@@ -2391,59 +2477,161 @@ function App() {
       )}
 
       {signatureDialogOpen && (
-        <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSignatureDialogOpen(false); }}>
-          <section className="app-dialog signature-dialog" role="dialog" aria-modal="true" aria-labelledby="signature-dialog-title">
+        <div className={`dialog-backdrop ${savedSignatures.length > 0 && !signatureEditorOpen ? "signature-library-backdrop" : ""}`} onMouseDown={(event) => { if (event.target === event.currentTarget) setSignatureDialogOpen(false); }}>
+          <section className={`app-dialog signature-dialog ${savedSignatures.length > 0 && !signatureEditorOpen ? "signature-library-dialog" : ""}`} role="dialog" aria-modal="true" aria-label="Firmas guardadas">
+            {(signatureEditorOpen || savedSignatures.length === 0) && <>
             <h2 id="signature-dialog-title">Firmas</h2>
             <p>Las firmas guardadas se conservan en este dispositivo.</p>
+            </>}
             {savedSignatures.length > 0 && <div className="saved-signatures">
               {savedSignatures.map((signature) => (
                 <div className="saved-signature" key={signature.id}>
                   <button type="button" className="signature-choice" onClick={() => chooseSignature(signature.dataUrl)} title={`Usar ${signature.name}`}>
                     <img src={signature.dataUrl} alt="" />
-                    <span>{signature.name}</span>
+                    {editingSignatureId === signature.id ? (
+                      <input
+                        className="signature-name-input"
+                        aria-label={`Nuevo nombre para ${signature.name}`}
+                        value={editingSignatureName}
+                        onChange={(event) => setEditingSignatureName(event.target.value)}
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") renameSignature(signature.id);
+                          if (event.key === "Escape") setEditingSignatureId(null);
+                        }}
+                      />
+                    ) : <span>{signature.name}</span>}
                   </button>
+                  {editingSignatureId === signature.id ? (
+                    <button type="button" className="signature-edit" aria-label={`Guardar nombre de ${signature.name}`} title="Guardar nombre" onClick={() => renameSignature(signature.id)}>Guardar</button>
+                  ) : (
+                    <button type="button" className="signature-edit" aria-label={`Editar nombre de ${signature.name}`} title="Editar nombre" onClick={() => {
+                      setEditingSignatureId(signature.id);
+                      setEditingSignatureName(signature.name);
+                    }}><Pencil size={13} /></button>
+                  )}
                   <button type="button" className="signature-delete" aria-label={`Eliminar ${signature.name}`} title="Eliminar firma" onClick={() => {
-                    const signatures = savedSignatures.filter((item) => item.id !== signature.id);
-                    setSavedSignatures(signatures);
-                    localStorage.setItem("solutionpdf.signatures", JSON.stringify(signatures));
+                    persistSignatures(savedSignatures.filter((item) => item.id !== signature.id));
                   }}><Trash2 size={15} /></button>
                 </div>
               ))}
+              <button type="button" className="signature-add-card" onClick={() => setSignatureEditorOpen(true)} aria-label="Agregar firma">
+                <span>Agregar Firma</span>
+                <Plus size={27} strokeWidth={1.7} />
+              </button>
             </div>}
-            <label className="signature-label">Crear una firma nueva</label>
-            <canvas
-              ref={signatureCanvasRef}
-              className="signature-canvas"
-              width={520}
-              height={150}
-              aria-label="Área para dibujar una firma"
-              onPointerDown={(event) => {
-                const canvas = event.currentTarget;
-                const bounds = canvas.getBoundingClientRect();
-                const context = canvas.getContext("2d");
-                if (!context) return;
-                signatureDrawingRef.current = true;
-                canvas.setPointerCapture(event.pointerId);
-                context.beginPath();
-                context.lineWidth = 4;
-                context.lineCap = "round";
-                context.lineJoin = "round";
-                context.strokeStyle = "#202927";
-                context.moveTo((event.clientX - bounds.left) * canvas.width / bounds.width, (event.clientY - bounds.top) * canvas.height / bounds.height);
-              }}
-              onPointerMove={(event) => {
-                if (!signatureDrawingRef.current) return;
-                const canvas = event.currentTarget;
-                const bounds = canvas.getBoundingClientRect();
-                const context = canvas.getContext("2d");
-                if (!context) return;
-                context.lineTo((event.clientX - bounds.left) * canvas.width / bounds.width, (event.clientY - bounds.top) * canvas.height / bounds.height);
-                context.stroke();
-              }}
-              onPointerUp={() => { signatureDrawingRef.current = false; }}
-              onPointerCancel={() => { signatureDrawingRef.current = false; }}
+            {(signatureEditorOpen || savedSignatures.length === 0) && <>
+            <div className="signature-editor-heading">
+             <strong>{savedSignatures.length > 0 ? "Crear una firma nueva" : "Crea tu primera firma"}</strong>
+             {savedSignatures.length > 0 && <button type="button" onClick={() => setSignatureEditorOpen(false)}>Volver a mis firmas</button>}
+            </div>
+            <label className="signature-name-label" htmlFor="signature-name">Nombre de la firma</label>
+            <input
+              id="signature-name"
+              className="signature-name-field"
+              value={signatureName}
+              onChange={(event) => setSignatureName(event.target.value)}
+              placeholder="Ej. Abogado, Ing. García"
+              maxLength={60}
             />
+            <div className="signature-tabs" role="tablist" aria-label="Tipo de firma">
+              {([
+                { id: "text", label: "Texto", icon: Keyboard },
+                { id: "draw", label: "Dibujar", icon: PenTool },
+                { id: "image", label: "Imagen", icon: ImageIcon },
+              ] as const).map(({ id, label, icon: Icon }) => (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={signatureMode === id}
+                  className={`signature-tab ${signatureMode === id ? "active" : ""}`}
+                  onClick={() => {
+                    setSignatureMode(id);
+                    if (id !== "image") setSignatureImageDataUrl(null);
+                    if (id === "text") drawTypedSignature(signatureText);
+                  }}
+                >
+                  <Icon size={22} strokeWidth={1.8} />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+            <div className="signature-workspace">
+              {signatureMode === "text" && (
+                <label className="signature-text-control" htmlFor="signature-text">
+                  Escribe tu nombre
+                  <input
+                    id="signature-text"
+                    value={signatureText}
+                    onChange={(event) => setSignatureText(event.target.value)}
+                    placeholder="Tu firma"
+                    maxLength={40}
+                    autoFocus
+                  />
+                </label>
+              )}
+              {signatureMode === "text" && (
+                <div className="signature-font-options" role="radiogroup" aria-label="Estilo de fuente">
+                  {signatureFontOptions.map((option) => (
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={signatureFont === option.family}
+                      className={`signature-font-option ${signatureFont === option.family ? "selected" : ""}`}
+                      style={{ fontFamily: option.family }}
+                      onClick={() => setSignatureFont(option.family)}
+                    >
+                      {signatureText || option.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {signatureMode === "image" && (
+                <label className="signature-upload-button" htmlFor="signature-image-upload">
+                  <Upload size={16} /> Seleccionar imagen de firma
+                  <input id="signature-image-upload" type="file" accept="image/*" onChange={handleSignatureImageUpload} />
+                </label>
+              )}
+              {signatureMode === "image" && signatureImageDataUrl ? (
+                <div className="signature-image-preview"><img src={signatureImageDataUrl} alt="Vista previa de la firma subida" /></div>
+              ) : (
+                <canvas
+                  ref={signatureCanvasRef}
+                  className={`signature-canvas ${signatureMode === "text" ? "typed" : ""}`}
+                  width={720}
+                  height={190}
+                  aria-label={signatureMode === "text" ? "Vista previa de la firma escrita" : "Área para dibujar una firma"}
+                  onPointerDown={(event) => {
+                    if (signatureMode !== "draw") return;
+                    const canvas = event.currentTarget;
+                    const bounds = canvas.getBoundingClientRect();
+                    const context = canvas.getContext("2d");
+                    if (!context) return;
+                    signatureDrawingRef.current = true;
+                    canvas.setPointerCapture(event.pointerId);
+                    context.beginPath();
+                    context.lineWidth = 4;
+                    context.lineCap = "round";
+                    context.lineJoin = "round";
+                    context.strokeStyle = "#202927";
+                    context.moveTo((event.clientX - bounds.left) * canvas.width / bounds.width, (event.clientY - bounds.top) * canvas.height / bounds.height);
+                  }}
+                  onPointerMove={(event) => {
+                    if (signatureMode !== "draw" || !signatureDrawingRef.current) return;
+                    const canvas = event.currentTarget;
+                    const bounds = canvas.getBoundingClientRect();
+                    const context = canvas.getContext("2d");
+                    if (!context) return;
+                    context.lineTo((event.clientX - bounds.left) * canvas.width / bounds.width, (event.clientY - bounds.top) * canvas.height / bounds.height);
+                    context.stroke();
+                  }}
+                  onPointerUp={() => { signatureDrawingRef.current = false; }}
+                  onPointerCancel={() => { signatureDrawingRef.current = false; }}
+                />
+              )}
+            </div>
             <div className="dialog-footer"><button type="button" onClick={clearSignatureCanvas}><Eraser size={15} /> Limpiar</button><span /><button type="button" onClick={() => setSignatureDialogOpen(false)}>Cancelar</button><button type="button" className="dialog-primary" onClick={saveSignature}><Check size={15} /> Guardar y usar</button></div>
+            </>}
           </section>
         </div>
       )}

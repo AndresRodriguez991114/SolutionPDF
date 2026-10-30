@@ -74,7 +74,7 @@ const sections: ManualSection[] = [
       { title: "Editar o agregar texto", body: "Activa Editar texto. Selecciona texto existente para reemplazarlo o haz clic en la página para insertar una anotación. Puedes moverla arrastrando, cambiar su tamaño desde el control de selección y editarla con doble clic. Ctrl+Enter confirma el texto." },
       { title: "Límites de edición", body: "La edición del texto original depende de que PDFium pueda reconocer el texto y la fuente. En documentos escaneados, texto convertido en imagen o fuentes no disponibles, la edición puede fallar; puedes agregar una anotación de texto sobre la página." },
       { title: "Resaltar", body: "Activa Resaltar y selecciona texto en la página. Selecciona el resaltado para moverlo o eliminarlo." },
-      { title: "Firmar", body: "Pulsa Firmar para dibujar una firma nueva o elegir una guardada. Pulsa Guardar y usar y haz clic en la página para colocarla. Las firmas guardadas se conservan localmente en este dispositivo." },
+      { title: "Firmar", body: "Pulsa Firmar para dibujar una firma nueva, subir una imagen de firma o elegir una guardada. Puedes asignar un nombre como “Abogado” o “Ing. García” y editarlo después. Pulsa Guardar y usar y haz clic en la página para colocarla. Las firmas guardadas se conservan localmente en este dispositivo." },
     ],
   },
   {

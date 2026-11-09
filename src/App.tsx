@@ -1334,9 +1334,38 @@ function App() {
     setStatus("Firma lista: haz clic en el lugar donde quieres colocarla");
   }
 
-  function persistSignatures(signatures: typeof savedSignatures) {
-    setSavedSignatures(signatures);
-    localStorage.setItem("solutionpdf.signatures", JSON.stringify(signatures));
+  function persistSignatures(signatures: typeof savedSignatures): boolean {
+    try {
+      localStorage.setItem("solutionpdf.signatures", JSON.stringify(signatures));
+      setSavedSignatures(signatures);
+      return true;
+    } catch (error) {
+      notify("No se pudo guardar la firma", `El almacenamiento local está lleno o no disponible. ${errorMessage(error)}`);
+      return false;
+    }
+  }
+
+  function optimizeSignatureImage(dataUrl: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        const maxWidth = 720;
+        const maxHeight = 190;
+        const scale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("No se pudo preparar la imagen."));
+          return;
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      image.onerror = () => reject(new Error("El archivo no contiene una imagen legible."));
+      image.src = dataUrl;
+    });
   }
 
   function handleSignatureImageUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -1355,8 +1384,12 @@ function App() {
       }
       const canvas = signatureCanvasRef.current;
       canvas?.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
-      setSignatureImageDataUrl(reader.result);
-      setSignatureMode("image");
+      void optimizeSignatureImage(reader.result)
+        .then((optimizedDataUrl) => {
+          setSignatureImageDataUrl(optimizedDataUrl);
+          setSignatureMode("image");
+        })
+        .catch((error) => notify("No se pudo preparar la imagen", errorMessage(error)));
     };
     reader.onerror = () => notify("No se pudo cargar la imagen", "Intenta con otro archivo.");
     reader.readAsDataURL(file);
@@ -1379,22 +1412,34 @@ function App() {
     if (signatureMode === "text") drawTypedSignature(signatureText);
   }, [signatureMode, signatureText, signatureFont]);
 
-  function saveSignature() {
+  async function saveSignature() {
     const canvas = signatureCanvasRef.current;
-    if (!canvas) return;
-    const context = canvas.getContext("2d");
-    const hasDrawing = Boolean(context?.getImageData(0, 0, canvas.width, canvas.height).data.some((value, index) => index % 4 === 3 && value > 0));
+    const context = canvas?.getContext("2d");
+    const hasDrawing = Boolean(context && canvas?.width && canvas.height
+      && context.getImageData(0, 0, canvas.width, canvas.height).data.some((value, index) => index % 4 === 3 && value > 0));
     if (!signatureImageDataUrl && !hasDrawing) {
       notify("Firma vacía", signatureMode === "text" ? "Escribe tu nombre antes de guardarlo." : "Dibuja o sube una firma antes de guardarla.");
       return;
     }
-    const dataUrl = signatureImageDataUrl || canvas.toDataURL("image/png");
+    let dataUrl = signatureImageDataUrl || canvas?.toDataURL("image/png");
+    if (!dataUrl) {
+      notify("Firma vacía", "Selecciona o crea una firma antes de guardarla.");
+      return;
+    }
+    if (signatureImageDataUrl) {
+      try {
+        dataUrl = await optimizeSignatureImage(signatureImageDataUrl);
+      } catch (error) {
+        notify("No se pudo guardar la imagen", errorMessage(error));
+        return;
+      }
+    }
     const entry = {
       id: `${Date.now()}`,
       name: signatureName.trim() || `Firma ${savedSignatures.length + 1}`,
       dataUrl,
     };
-    persistSignatures([...savedSignatures, entry]);
+    if (!persistSignatures([...savedSignatures, entry])) return;
     setSignatureName("");
     setSignatureImageDataUrl(null);
     setSignatureText("");
